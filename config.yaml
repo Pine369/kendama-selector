@@ -1,0 +1,36 @@
+# ==========================================
+# 选品 - 全局配置
+# ==========================================
+
+# 1. 爬虫搜索设置
+search:
+  broad_keywords:
+    - "けん玉"
+    - "Kendama"
+  max_items_per_platform: 100
+
+# 2. 白名单 (命中以下品牌才送去给 AI )
+valid_brands:
+  - "夢元"
+  - "mugen"
+  - "sulab"
+  - "スーラボ"
+  - "grain theory"
+  - "da origin"
+  - "krom"
+  - "クロム"
+  - "legaxis"
+  - "レガシス"
+  - "大空"
+  - "ozora"
+  - "sweets"
+  - "sol"
+  - "terra"
+  - "isr"
+  - "lotus"
+  - "okendama"
+
+# 3. 定时调度设置
+schedule:
+  scan_interval_minutes: 30
+  daily_summary_time: "22:00"
