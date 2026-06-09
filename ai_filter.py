@@ -102,7 +102,7 @@ def call_ai(messages):
         logger.warning(f"主 API 失败,切换备用: {primary_err}")
         try:
             response = backup_client.chat.completions.create(
-                model="deepseek-ai/DeepSeek-V3",
+                model="deepseek-ai/DeepSeek-V4",
                 messages=messages,
                 temperature=0
             )
