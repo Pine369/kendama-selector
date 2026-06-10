@@ -69,10 +69,11 @@ def proxy_image_url(url):
     """
     通过 wsrv.nl 代理图片 URL,绕过微信内置浏览器的防盗链。
     对 URL 做完整编码,避免查询参数被 wsrv.nl 误解析。
+    追加 w=300&h=300&fit=cover 在服务端直接裁剪图片。
     """
     if not url:
         return ""
-    return f"{IMAGE_PROXY_HOST}?url={quote(url, safe='')}"
+    return f"{IMAGE_PROXY_HOST}?url={quote(url, safe='')}&w=300&h=300&fit=cover"
 
 
 def ensure_proxied(url):
