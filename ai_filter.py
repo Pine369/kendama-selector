@@ -131,8 +131,15 @@ BATCH_FILTER_PROMPT = f"""
 3. 命中"金矿案例"特征的商品,标记为"强推"。
 4. 命中"绝对跳过"条件的商品,直接淘汰。
 5. 标题信息不足但煤炉价 < 3000 日元的商品,标记为"盲盒"保留。
-6. 预估利润低于 20 元的商品,淘汰。
-7. 利润计算严格按成本公式执行: 总成本 = 煤炉价 × 0.045 + 80 + 30。
+6. 预估利润低于0 - 30 元的商品,标记"盲盒"保留。
+7. 利润计算严格按以下成本公式执行：
+   - 步骤一 (算底价)：换算基础价 = 煤炉价 * 0.045
+   - 步骤二 (判关税)：计算纳税基准值 = 换算基础价 * 0.2
+   - 步骤三 (算成本)：
+     * 场景 1：如果 纳税基准值 < 50，则免税。总成本 = 换算基础价 + 50(运费+手续费)
+     * 场景 2：如果 纳税基准值 >= 50，则需缴税。总成本 = 换算基础价 + 50(运费+手续费) + (换算基础价 * 0.13)
+   - 步骤四 (算利润)：预估利润 = 国内参考行情价 - 总成本
+   ※ 注意：预估利润 ≤ 0 时，无论品牌或稀缺性如何，直接淘汰。
    预估利润 ≤ 0 时,无论品牌或稀缺性如何,直接淘汰。
 
 
@@ -176,7 +183,7 @@ FINAL_REPORT_PROMPT = """
 **1. [品牌/款式] · 利润 ¥XXX**
 原标题: [完整的原始日文商品标题]
 煤炉价 ¥XXXX 日元 · [标签]
-<img src="从 JSON 的 img_url 字段取值" width="200">
+<img src="从 JSON 的 img_url 字段取值" width="300" height="300" style="object-fit: cover; border-radius: 8px; margin-bottom: 10px;">
 [一句话理由,30 字以内]
 [从 JSON 的 url 字段取值]
 
@@ -206,7 +213,7 @@ DAILY_SUMMARY_PROMPT = """
 **1. [品牌/款式] · 利润 ¥XXX**
 原标题: [完整的原始日文商品标题]
 煤炉价 ¥XXXX 日元 · [标签]
-<img src="从 JSON 的 img_url 字段取值" width="200">
+<img src="从 JSON 的 img_url 字段取值" width="300" height="300" style="object-fit: cover; border-radius: 8px; margin-bottom: 10px;">
 [一句话理由,30 字以内]
 [从 JSON 的 url 字段取值]
 
@@ -348,7 +355,7 @@ def _build_fallback_report(candidates, total):
             f"**{i}. {item.get('brand', '?')} · 利润 ¥{item.get('estimated_profit', '?')}**\n"
             f"原标题: {item.get('title', '未知')}\n"
             f"煤炉价 ¥{item.get('price_jpy', '?')} 日元 · {item.get('tag', '?')}\n"
-            f"<img src=\"{item.get('img_url', '')}\" width=\"200\">\n"
+            f"<img src=\"{item.get('img_url', '')}\" width=\"300\" height=\"300\" style=\"object-fit: cover; border-radius: 8px; margin-bottom: 10px;\">\n"
             f"{item.get('reason', '')}\n"
             f"{item.get('url', '')}\n"
         )
