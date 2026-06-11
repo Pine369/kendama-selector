@@ -77,7 +77,7 @@ flowchart TB
     end
 
     subgraph Outputs["输出"]
-        O1[微信推送<br/>每 30 分钟]
+        O1[微信推送<br/>每 60 分钟]
         O2[每日汇总<br/>22:00]
     end
 
