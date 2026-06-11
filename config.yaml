@@ -29,8 +29,11 @@ valid_brands:
   - "isr"
   - "lotus"
   - "okendama"
+  - "Cereal"
+  - "erratic squirrel"
+  - "Wekens"
 
 # 3. 定时调度设置
 schedule:
-  scan_interval_minutes: 30
+  scan_interval_minutes: 60
   daily_summary_time: "22:00"
