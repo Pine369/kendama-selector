@@ -38,10 +38,12 @@
 
 ## 真实效果
 
-| 系统推送 (23:50) | 平台状态 (约 2 小时后) |
-| :---: | :---: |
-| <img src="https://github.com/user-attachments/assets/a07a5f04-dacc-4e36-89d6-66d0672fe43a" width="280"> | <img src="https://github.com/user-attachments/assets/07b2bdd5-bb7e-465a-be96-ea7525c488fa" width="550"> |
-| 规则匹配后,系统将该商品标记为"推荐"并推送。 | 同一商品在煤炉上被买家拍下,状态变为 SOLD。 |
+<div align="center">
+  <img src="https://github.com/user-attachments/assets/71247e74-04cd-4d9b-9d22-4979ae836378" width="800">
+</div>
+
+规则匹配后,系统将该商品标记为"推荐"并推送。  
+同一商品在煤炉上被买家拍下,状态变为 SOLD。 
 
 这种"被快速买走"的情况,是这个项目想要解决的核心问题——
 在交易中,好货的流通速度往往以小时计。
