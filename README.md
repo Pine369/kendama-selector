@@ -277,6 +277,6 @@ kendama-selector/
 本项目的代码部分,主要在 AI 协作下完成。
 
 我负责:领域规则(rules.md / cases.md)、需求设计、决策判断、工程整合。
-代码实现:Claude (Opus 4.7) Gemini 和 DeepSeek 提供了大量帮助。
+代码实现:Claude (Opus 4.7) Gemini pro 和 DeepSeek 提供了大量帮助。
 
-我相信这种AI + 领域专家共同协作的工作方式会变得越来越普遍。
+我相信这种AI + "领域专家"共同协作的工作方式会变得越来越普遍。
