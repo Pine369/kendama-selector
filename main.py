@@ -83,11 +83,6 @@ def diagnose_feedback_config():
     if not is_configured(FEEDBACK_URL):
         logger.warning("FEEDBACK_URL 未配置 → 卡片将不带反馈按钮")
         return
-    if FEEDBACK_URL.startswith("http://"):
-        logger.warning(
-            "FEEDBACK_URL 是 http 协议 → 飞书可能静默丢弃 button "
-            "(按钮看不见),建议升级到 https"
-        )
     else:
         logger.info(f"反馈端点已配置: {FEEDBACK_URL[:40]}...")
 
