@@ -1,0 +1,101 @@
+"""
+反馈接收端
+
+飞书卡片按钮点击后会跳转到这里,把决策(买入/放弃 + 原因)写进 SQLite。
+端口默认 5001,通过 cpolar / 域名 + Nginx 暴露到公网,
+然后把 https://xxx 写进主程序的 .env 里的 FEEDBACK_URL。
+
+启动:
+    python feedback_server.py
+
+查看记录:
+    sqlite3 feedback.db "SELECT * FROM feedback ORDER BY ts DESC LIMIT 20;"
+"""
+import os
+import sqlite3
+import logging
+from datetime import datetime
+
+from flask import Flask, request
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='[%(asctime)s] %(levelname)s - %(message)s',
+    datefmt='%H:%M:%S'
+)
+logger = logging.getLogger(__name__)
+
+DB_FILE = "feedback.db"
+PORT = int(os.getenv("FEEDBACK_PORT", "5001"))
+
+app = Flask(__name__)
+
+
+def init_db():
+    conn = sqlite3.connect(DB_FILE)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS feedback (
+            id TEXT PRIMARY KEY,
+            url TEXT,
+            action TEXT,
+            reason TEXT,
+            ts TEXT
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+
+@app.route("/feedback")
+def feedback():
+    item_id = request.args.get("id", "")
+    action = request.args.get("action", "")
+    reason = request.args.get("reason", "")
+    url = request.args.get("url", "")
+
+    if not item_id or not action:
+        return "missing params", 400
+
+    ts = datetime.now().isoformat(timespec="seconds")
+    try:
+        conn = sqlite3.connect(DB_FILE)
+        # 同一 item_id 重复点击以最后一次为准
+        conn.execute(
+            "INSERT OR REPLACE INTO feedback (id, url, action, reason, ts) VALUES (?, ?, ?, ?, ?)",
+            (item_id, url, action, reason, ts),
+        )
+        conn.commit()
+        conn.close()
+        logger.info(f"记录反馈: {item_id} {action} ({reason})")
+    except Exception as e:
+        logger.error(f"写入失败: {e}")
+        return "db error", 500
+
+    # 极简页面,浏览器跳过来看到这个就行
+    return f"""
+    <!DOCTYPE html>
+    <html><head><meta charset="utf-8"><title>已记录</title>
+    <style>
+      body {{ font-family: -apple-system, sans-serif; padding: 40px;
+              text-align: center; color: #333; }}
+      h2 {{ color: #2c7be5; }}
+      .meta {{ color: #888; margin-top: 12px; font-size: 14px; }}
+    </style></head>
+    <body>
+      <h2>✓ 已记录</h2>
+      <p>{action} · {reason}</p>
+      <p class="meta">{ts}</p>
+      <p class="meta">关闭此页面即可</p>
+    </body></html>
+    """
+
+
+@app.route("/health")
+def health():
+    return {"ok": True, "ts": datetime.now().isoformat(timespec="seconds")}
+
+
+if __name__ == "__main__":
+    init_db()
+    logger.info(f"反馈接收端启动,端口 {PORT}")
+    app.run(host="0.0.0.0", port=PORT)
