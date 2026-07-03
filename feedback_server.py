@@ -5,6 +5,10 @@
 端口默认 5001,通过 cpolar / 域名 + Nginx 暴露到公网,
 然后把 https://xxx 写进主程序的 .env 里的 FEEDBACK_URL。
 
+请求必须带有效的 HMAC-SHA256 签名(见 main.py 的 sign_feedback_params),
+签名密钥来自环境变量 FEEDBACK_SIGNING_SECRET,须与主程序一致。
+缺签名/签名错误一律拒绝写入,返回 403。
+
 启动:
     python feedback_server.py
 
@@ -12,11 +16,17 @@
     sqlite3 feedback.db "SELECT * FROM feedback ORDER BY ts DESC LIMIT 20;"
 """
 import os
+import hmac
+import hashlib
 import sqlite3
 import logging
+from html import escape
 from datetime import datetime
 
 from flask import Flask, request
+from dotenv import load_dotenv
+
+load_dotenv()
 
 logging.basicConfig(
     level=logging.INFO,
@@ -27,8 +37,26 @@ logger = logging.getLogger(__name__)
 
 DB_FILE = "feedback.db"
 PORT = int(os.getenv("FEEDBACK_PORT", "5001"))
+SIGNING_SECRET = os.getenv("FEEDBACK_SIGNING_SECRET")
 
 app = Flask(__name__)
+
+
+def expected_signature(item_id, action, reason):
+    """与 main.py 的 sign_feedback_params 保持一致的签名算法。"""
+    payload = "\x1f".join([item_id, action, reason])
+    return hmac.new(
+        SIGNING_SECRET.encode("utf-8"),
+        payload.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def signature_valid(item_id, action, reason, sig):
+    """密钥未配置、签名缺失或不匹配都视为无效,一律拒绝(fail closed)。"""
+    if not SIGNING_SECRET or not sig:
+        return False
+    return hmac.compare_digest(expected_signature(item_id, action, reason), sig)
 
 
 def init_db():
@@ -52,9 +80,14 @@ def feedback():
     action = request.args.get("action", "")
     reason = request.args.get("reason", "")
     url = request.args.get("url", "")
+    sig = request.args.get("sig", "")
 
     if not item_id or not action:
         return "missing params", 400
+
+    if not signature_valid(item_id, action, reason, sig):
+        logger.warning(f"反馈签名校验失败,拒绝写入: id={item_id} action={action}")
+        return "invalid signature", 403
 
     ts = datetime.now().isoformat(timespec="seconds")
     try:
@@ -83,7 +116,7 @@ def feedback():
     </style></head>
     <body>
       <h2>✓ 已记录</h2>
-      <p>{action} · {reason}</p>
+      <p>{escape(action)} · {escape(reason)}</p>
       <p class="meta">{ts}</p>
       <p class="meta">关闭此页面即可</p>
     </body></html>

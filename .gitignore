@@ -1,8 +1,10 @@
 .env
 venv/
+.venv/
 __pycache__/
 *.log
 *.json
+scraper_health.json
 *.db
 rules.md
 cases.md

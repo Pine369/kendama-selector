@@ -9,7 +9,10 @@
 如果 FEEDBACK_URL 是 http,飞书会静默丢弃整个 action 元素(按钮看不见)。
 """
 import os
+import re
+import json
 import time
+import hmac
 import hashlib
 import logging
 from datetime import datetime
@@ -20,8 +23,9 @@ import schedule
 import yaml
 from dotenv import load_dotenv
 
-from scraper import scrape_multiple_keywords
-from ai_filter import evaluate_with_ai, generate_daily_summary, JPY_TO_CNY
+from scraper import scrape_multiple_keywords, PLATFORMS
+from ai_filter import evaluate_with_ai, generate_daily_summary, JPY_TO_CNY, DAILY_POOL_FILE
+import scraper_health
 
 logging.basicConfig(
     level=logging.INFO,
@@ -46,6 +50,10 @@ SUMMARY_TIME = CONFIG["schedule"]["daily_summary_time"]
 
 FEISHU_WEBHOOK = os.getenv("FEISHU_WEBHOOK")
 FEEDBACK_URL = os.getenv("FEEDBACK_URL")  # 反馈接收端,需 HTTPS
+FEEDBACK_SIGNING_SECRET = os.getenv("FEEDBACK_SIGNING_SECRET")  # 反馈链接签名密钥,需与 feedback_server.py 一致
+
+SCRAPER_HEALTH_FILE = "scraper_health.json"
+SCRAPER_HEALTH_THRESHOLD = 3
 
 
 # ----------------------------------------
@@ -57,15 +65,28 @@ def item_id(item):
     return hashlib.md5(url.encode("utf-8")).hexdigest()[:12]
 
 
+def sign_feedback_params(item_id_value, action, reason):
+    """对反馈参数做 HMAC-SHA256 签名,防止反馈链接被伪造篡改。"""
+    payload = "\x1f".join([item_id_value, action, reason])
+    return hmac.new(
+        FEEDBACK_SIGNING_SECRET.encode("utf-8"),
+        payload.encode("utf-8"),
+        hashlib.sha256,
+    ).hexdigest()
+
+
 def feedback_link(item, action, reason):
-    """生成反馈点击链接。FEEDBACK_URL 没配就返回空,卡片自动降级到无按钮。"""
-    if not FEEDBACK_URL:
+    """生成反馈点击链接。FEEDBACK_URL 或签名密钥没配就返回空,卡片自动降级到无按钮,
+    避免生成可写入数据库的未签名链接。"""
+    if not FEEDBACK_URL or not is_configured(FEEDBACK_SIGNING_SECRET):
         return None
+    iid = item_id(item)
     params = urlencode({
-        "id": item_id(item),
+        "id": iid,
         "action": action,
         "reason": reason,
         "url": item.get("url", ""),
+        "sig": sign_feedback_params(iid, action, reason),
     })
     return f"{FEEDBACK_URL}?{params}"
 
@@ -83,8 +104,10 @@ def diagnose_feedback_config():
     if not is_configured(FEEDBACK_URL):
         logger.warning("FEEDBACK_URL 未配置 → 卡片将不带反馈按钮")
         return
-    else:
-        logger.info(f"反馈端点已配置: {FEEDBACK_URL[:40]}...")
+    if not is_configured(FEEDBACK_SIGNING_SECRET):
+        logger.warning("FEEDBACK_SIGNING_SECRET 未配置 → 反馈功能未启用,卡片将不带反馈按钮")
+        return
+    logger.info(f"反馈端点已配置: {FEEDBACK_URL[:40]}...")
 
 
 # ----------------------------------------
@@ -224,22 +247,113 @@ def push_items(items):
 
 
 def push_summary(items):
-    post_to_feishu(build_summary_card(items), label="daily_summary")
+    return post_to_feishu(build_summary_card(items), label="daily_summary")
 
 
 # ----------------------------------------
 # 业务流程
 # ----------------------------------------
 def filter_by_brand_whitelist(items):
+    """品牌白名单匹配,大小写无关(不修改 VALID_BRANDS 本身)。"""
+    brands_lower = [b.lower() for b in VALID_BRANDS]
     return [
         item for item in items
-        if any(b in item["title"].lower() for b in VALID_BRANDS)
+        if any(b in item["title"].lower() for b in brands_lower)
     ]
+
+
+def _parse_price_jpy(price_str):
+    """从抓取到的价格字符串(如 '¥18,000')中提取数字,解析失败返回 None。"""
+    if not price_str:
+        return None
+    digits = re.sub(r"[^\d]", "", str(price_str))
+    return int(digits) if digits else None
+
+
+def _load_seen_prices(pool_file):
+    """读取当日候选池,返回 {url: price_jpy},用于跳过价格未变化的重复评估。"""
+    if not os.path.exists(pool_file):
+        return {}
+    try:
+        with open(pool_file, "r", encoding="utf-8") as f:
+            pool = json.load(f)
+    except Exception as e:
+        logger.warning(f"读取候选池失败,本轮不做去重: {e}")
+        return {}
+
+    seen = {}
+    for entry in pool:
+        url = entry.get("url")
+        price_jpy = entry.get("price_jpy")
+        if url and isinstance(price_jpy, (int, float)):
+            seen[url] = price_jpy
+    return seen
+
+
+def filter_already_evaluated(items, seen_prices):
+    """跳过'同 URL 且价格未变化'的商品,减少重复 LLM 调用。价格变化或新 URL 都保留。"""
+    fresh = []
+    skipped = 0
+    for item in items:
+        url = item.get("url")
+        seen_price = seen_prices.get(url) if url else None
+        if seen_price is not None:
+            current_price = _parse_price_jpy(item.get("price"))
+            if current_price is not None and current_price == seen_price:
+                skipped += 1
+                continue
+        fresh.append(item)
+
+    if skipped:
+        logger.info(f"跳过当日已评估且价格未变化的商品: {skipped} 条")
+    return fresh
+
+
+def _count_items_by_platform(raw_items):
+    """按 scraper.py 写入的 category 字段(格式'[平台] 关键词')统计各平台本轮抓取数量。"""
+    counts = {platform: 0 for platform in PLATFORMS}
+    for item in raw_items:
+        category = item.get("category", "")
+        for platform in PLATFORMS:
+            if category.startswith(f"[{platform}]"):
+                counts[platform] += 1
+                break
+    return counts
+
+
+def check_scraper_health(raw_items):
+    """连续 3 轮某平台抓取为 0 时告警一次,直到该平台恢复(抓到 >0 条)才允许再次告警。"""
+    counts = _count_items_by_platform(raw_items)
+    state = scraper_health.load_health_state(SCRAPER_HEALTH_FILE)
+    state, to_alert = scraper_health.update_platform_counts(
+        state, counts, threshold=SCRAPER_HEALTH_THRESHOLD
+    )
+    scraper_health.save_health_state(SCRAPER_HEALTH_FILE, state)
+
+    for platform in to_alert:
+        consecutive = state[platform]["consecutive_zero"]
+        message = scraper_health.format_alert_message(platform, consecutive)
+        logger.error(f"抓取健康告警: {message}")
+        post_to_feishu(
+            {
+                "msg_type": "interactive",
+                "card": {
+                    "header": {
+                        "title": {"tag": "plain_text", "content": f"⚠️ 抓取疑似异常: {platform}"},
+                        "template": "red",
+                    },
+                    "elements": [{"tag": "markdown", "content": message}],
+                },
+            },
+            label=f"scraper_health_{platform}",
+        )
 
 
 def run_scan():
     logger.info("开始新一轮扫描")
     raw_items = scrape_multiple_keywords(BROAD_KEYWORDS, max_items_per_platform=MAX_ITEMS)
+
+    check_scraper_health(raw_items)
 
     if not raw_items:
         logger.warning("爬虫未返回任何数据")
@@ -250,6 +364,12 @@ def run_scan():
     logger.info(f"抓取 {total} 条,品牌白名单匹配 {len(candidates)} 条")
 
     if not candidates:
+        return
+
+    seen_prices = _load_seen_prices(DAILY_POOL_FILE)
+    candidates = filter_already_evaluated(candidates, seen_prices)
+    if not candidates:
+        logger.info("本轮候选均已评估过且价格未变化,跳过 LLM 调用")
         return
 
     top_items = evaluate_with_ai(candidates)
@@ -268,11 +388,15 @@ def run_daily_summary():
         logger.info("今日无精选数据,跳过汇总")
         return
 
-    push_summary(items)
+    ok = push_summary(items)
+    if not ok:
+        logger.error("汇总推送失败,保留 daily_pool.json,等待后续重试")
+        return
+
     logger.info(f"每日汇总已推送,共 {len(items)} 条")
 
-    if os.path.exists("daily_pool.json"):
-        os.remove("daily_pool.json")
+    if os.path.exists(DAILY_POOL_FILE):
+        os.remove(DAILY_POOL_FILE)
 
 
 def safe_run(task_func, task_name):

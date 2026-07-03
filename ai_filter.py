@@ -20,6 +20,7 @@ import re
 import json
 import time
 import logging
+import tempfile
 from urllib.parse import quote
 
 import httpx
@@ -114,14 +115,17 @@ def calculate_profit(price_jpy, domestic_ref_price):
 
 
 def assign_tag(profit, is_gold_mine):
-    """按利润和是否命中金矿案例判定标签。返回 None 表示淘汰。"""
+    """按利润五档判定标签(与 rules.md 第七条一致)。返回 None 表示淘汰。
+    is_gold_mine 保留形参以兼容调用方,不再影响判定结果。"""
     if profit < 0:
         return None
-    if profit < 30:
+    if profit < 10:
         return "盲盒"
-    if is_gold_mine:
-        return "强推"
-    return "推荐"
+    if profit < 80:
+        return "观望"
+    if profit < 150:
+        return "推荐"
+    return "强推"
 
 
 # ----------------------------------------
@@ -302,14 +306,24 @@ def evaluate_with_ai(items, batch_size=15):
 
 
 def _append_to_daily_pool(candidates):
+    """读取-合并-原子写回,避免写入中途崩溃导致 daily_pool.json 损坏。"""
     try:
         pool = []
         if os.path.exists(DAILY_POOL_FILE):
             with open(DAILY_POOL_FILE, "r", encoding="utf-8") as f:
                 pool = json.load(f)
         pool.extend(candidates)
-        with open(DAILY_POOL_FILE, "w", encoding="utf-8") as f:
-            json.dump(pool, f, ensure_ascii=False, indent=2)
+
+        pool_dir = os.path.dirname(os.path.abspath(DAILY_POOL_FILE)) or "."
+        fd, tmp_path = tempfile.mkstemp(prefix=".daily_pool_", suffix=".tmp", dir=pool_dir)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(pool, f, ensure_ascii=False, indent=2)
+            os.replace(tmp_path, DAILY_POOL_FILE)  # 同盘原子替换,不会留下半截文件
+        except Exception:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+            raise
     except Exception as e:
         logger.error(f"写入汇总池失败: {e}")
 
