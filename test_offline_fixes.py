@@ -9,6 +9,8 @@
 5. ai_filter.assign_tag() 利润五档判定(与 rules.md 第七条一致)
 6. scraper_health 抓取健康检查(连续 N 轮 0 条告警一次,直到恢复)
 7. main.feedback_link() 反馈链接签名 / feedback_server.py 签名校验 + XSS 转义
+8. ai_filter.calculate_cost() / calculate_profit() 成本与利润边界
+9. ai_filter._enrich_with_profit() 跳过缺有效 URL 的候选,保留缺图片的候选
 
 不联网、不调用真实 DeepSeek / SiliconFlow / 飞书,不启动浏览器,不读取 .env 内容。
 feedback_server.py 相关测试使用临时 SQLite 文件,不污染真实 feedback.db。
@@ -436,6 +438,120 @@ class TestFeedbackServerSecurity(unittest.TestCase):
         body = resp.get_data(as_text=True)
         self.assertNotIn("<script>alert(1)</script>", body)
         self.assertIn("&lt;script&gt;", body)
+
+
+class TestCalculateCostAndProfit(unittest.TestCase):
+    """calculate_cost() / calculate_profit() 的真实分段公式,不改动业务公式本身。
+
+    汇率通过 mock 固定为 0.05(JPY_TO_CNY 本身就是环境变量参数化的值,
+    这里只是为了让边界数字整除、方便断言,不涉及修改成本/利润公式)。
+    """
+
+    def setUp(self):
+        self._rate_patch = mock.patch.object(ai_filter, "JPY_TO_CNY", 0.05)
+        self._rate_patch.start()
+
+    def tearDown(self):
+        self._rate_patch.stop()
+
+    def test_below_tax_threshold_not_taxed(self):
+        # base = 4000*0.05 = 200, tax_base = 40 < 50 → 不征税
+        base, cost, taxed = ai_filter.calculate_cost(4000)
+        self.assertEqual(base, 200)
+        self.assertFalse(taxed)
+        self.assertEqual(cost, 250)  # 200 + 50
+
+    def test_just_below_threshold_not_taxed(self):
+        # base = 4999*0.05 = 249.95, tax_base = 49.99 < 50 → 不征税
+        base, cost, taxed = ai_filter.calculate_cost(4999)
+        self.assertEqual(base, 249.95)
+        self.assertFalse(taxed)
+        self.assertEqual(cost, 299.95)
+
+    def test_exact_threshold_boundary_is_taxed(self):
+        # base = 5000*0.05 = 250, tax_base = 50,代码用 `< 50` 判断,
+        # 恰好等于 50 时落入 else 分支,即征税(边界值本身就是关键断言)
+        base, cost, taxed = ai_filter.calculate_cost(5000)
+        self.assertEqual(base, 250)
+        self.assertTrue(taxed)
+        self.assertEqual(cost, 332.5)  # 250 + 50 + 250*0.13
+
+    def test_above_threshold_is_taxed(self):
+        # base = 8000*0.05 = 400, tax_base = 80 >= 50 → 征税
+        base, cost, taxed = ai_filter.calculate_cost(8000)
+        self.assertEqual(base, 400)
+        self.assertTrue(taxed)
+        self.assertEqual(cost, 502)  # 400 + 50 + 400*0.13
+
+    def test_positive_profit_when_ref_price_above_cost(self):
+        # price_jpy=4000 → cost=250; ref_price=400 → profit=150
+        profit, base, cost, taxed = ai_filter.calculate_profit(4000, 400)
+        self.assertEqual(cost, 250)
+        self.assertEqual(profit, 150)
+
+    def test_zero_profit_when_ref_price_equals_cost(self):
+        profit, base, cost, taxed = ai_filter.calculate_profit(4000, 250)
+        self.assertEqual(cost, 250)
+        self.assertEqual(profit, 0)
+
+    def test_negative_profit_when_ref_price_below_cost(self):
+        profit, base, cost, taxed = ai_filter.calculate_profit(4000, 100)
+        self.assertEqual(cost, 250)
+        self.assertEqual(profit, -150)
+
+
+class TestEnrichWithProfitSkipsInvalidUrl(unittest.TestCase):
+    """_enrich_with_profit() 应跳过缺有效 URL 的候选,保留缺图片但有 URL 的候选。"""
+
+    def setUp(self):
+        self._rate_patch = mock.patch.object(ai_filter, "JPY_TO_CNY", 0.05)
+        self._rate_patch.start()
+
+    def tearDown(self):
+        self._rate_patch.stop()
+
+    def _valid_item(self, **overrides):
+        item = {
+            "title": "sulab FC漆",
+            "brand": "sulab",
+            "price_jpy": 4000,
+            "domestic_ref_price": 400,  # profit=150 → 推荐/强推区间,必定通过标签过滤
+            "is_gold_mine": False,
+            "url": "https://jp.mercari.com/item/m123",
+            "img_url": "https://static.mercdn.net/img.jpg",
+            "reason": "测试用例",
+        }
+        item.update(overrides)
+        return item
+
+    def test_missing_url_is_skipped(self):
+        item = self._valid_item(url="")
+        del item["url"]
+        result = ai_filter._enrich_with_profit([item])
+        self.assertEqual(result, [])
+
+    def test_empty_or_non_http_url_is_skipped(self):
+        for bad_url in ["", "   ", "not-a-url", "ftp://example.com/x"]:
+            with self.subTest(bad_url=bad_url):
+                item = self._valid_item(url=bad_url)
+                result = ai_filter._enrich_with_profit([item])
+                self.assertEqual(result, [])
+
+    def test_valid_url_missing_image_is_kept(self):
+        item = self._valid_item(img_url="")
+        result = ai_filter._enrich_with_profit([item])
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["img_url"], "")
+        self.assertEqual(result[0]["tag"], "强推")
+
+    def test_normal_candidate_is_unaffected(self):
+        item = self._valid_item()
+        result = ai_filter._enrich_with_profit([item])
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["url"], "https://jp.mercari.com/item/m123")
+        self.assertEqual(result[0]["img_url"], "https://static.mercdn.net/img.jpg")
+        self.assertEqual(result[0]["estimated_profit"], 150)
+        self.assertEqual(result[0]["tag"], "强推")
 
 
 if __name__ == "__main__":

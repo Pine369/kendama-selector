@@ -240,10 +240,20 @@ def filter_single_batch(items, batch_num, total_batches):
     return []
 
 
+def _is_valid_url(url):
+    """商品链接是否可用于推送。图片链接缺失不受此约束,单独处理。"""
+    return isinstance(url, str) and url.strip().lower().startswith(("http://", "https://"))
+
+
 def _enrich_with_profit(candidates):
-    """用 Python 算利润、补字段、判定标签。profit < 0 的会被过滤掉。"""
+    """用 Python 算利润、补字段、判定标签。profit < 0 的、缺有效 URL 的都会被过滤掉。"""
     enriched = []
+    skipped_no_url = 0
     for item in candidates:
+        if not _is_valid_url(item.get("url")):
+            skipped_no_url += 1
+            continue
+
         price_jpy = item.get("price_jpy")
         ref_price = item.get("domestic_ref_price")
 
@@ -263,6 +273,10 @@ def _enrich_with_profit(candidates):
         item["taxed"] = taxed
         item["tag"] = tag
         enriched.append(item)
+
+    if skipped_no_url:
+        logger.info(f"跳过缺少有效 URL 的候选: {skipped_no_url} 条")
+
     return enriched
 
 
