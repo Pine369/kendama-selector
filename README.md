@@ -80,52 +80,67 @@
 ```mermaid
 flowchart TB
     subgraph Sources["数据源"]
+        direction LR
         A1[Mercari]
         A2[Yahoo Auctions]
         A3[Rakuten]
     end
 
-    subgraph Pipeline["处理流水线"]
-        B[Playwright 爬虫]
-        C[品牌白名单预筛]
-        C2[URL 清洗/去重<br/>同价格历史跳过]
-        D[LLM 判断<br/>品牌 · 金矿/踩坑案例 · 国内参考价]
-        E[Python 算账<br/>成本/税/利润 → 五档标签]
-    end
-
-    subgraph Knowledge["领域知识"]
+    subgraph Knowledge["领域知识(人工维护)"]
+        direction LR
         K1[rules.md<br/>选品规则]
         K2[cases.md<br/>实战案例]
     end
 
-    subgraph Storage["持久化"]
-        S1[(kendama.db<br/>scan_runs/listings/price_history/<br/>evaluations/feedback_events)]
+    subgraph Pipeline["筛选、评估与分流"]
+        direction TB
+        B[Playwright 爬虫]
+        C[品牌白名单预筛]
+        C2[URL 清洗 / 同轮去重<br/>历史同价跳过]
+        D[LLM 评估<br/>品牌 · 金矿/踩坑案例 · 国内参考价]
+        E[Python 确定性算账<br/>成本 / 税 / 利润 / 五档标签]
+        R[评估结果持久化<br/>所有完成计算的候选]
+        P{利润 ≥ 0?}
+        Q[可推送候选]
+        T[按利润排序<br/>取前 15 条]
+        X[跳过<br/>仅留档,不进入推送]
+    end
+
+    subgraph Storage["持久化数据"]
+        S1[(kendama.db<br/>scan_runs / listings / price_history /<br/>evaluations / feedback_events)]
         S2[daily_pool.json<br/>当日候选池]
         S3[(feedback.db<br/>兼容性反馈库)]
     end
 
     subgraph Outputs["输出"]
-        O1[飞书交互卡片<br/>每 N 分钟]
+        O1[飞书即时交互卡片<br/>每轮扫描后]
         O2[每日汇总卡片<br/>22:00]
         O3[周报 / 偏好信号<br/>--weekly-review / --refresh-signals]
     end
 
     subgraph Feedback["反馈闭环"]
-        F1[按钮点击<br/>带 HMAC 签名]
+        F1[点击按钮<br/>打开带 HMAC 签名的 HTTPS 反馈链接]
         F2[Flask 反馈端<br/>签名校验]
     end
 
     Sources --> B --> C --> C2
     K1 --> D
     K2 --> D
-    C2 -->|送 LLM| D --> E
-    E -->|全部完成计算的候选| S1
-    E -->|利润 ≥ 0| S2
-    E -->|利润 ≥ 0,取前 15| O1
-    S2 -->|每日去重排序| O2
+    C2 -->|送入 LLM| D --> E
+
+    E --> R
+    R -->|全部完成计算的候选| S1
+    R --> P
+
+    P -->|否| X
+    P -->|是| Q
+    Q -->|全量写入| S2
+    Q --> T --> O1
+    S2 -->|22:00 读取、去重、排序| O2
+
     O1 --> F1 --> F2
-    F2 --> S3
-    F2 --> S1
+    F2 -->|兼容性写入| S3
+    F2 -->|追加反馈事件| S1
     S1 -.只读统计,不反向修改规则.-> O3
 
     style Knowledge fill:#fff4e6
@@ -140,13 +155,16 @@ flowchart TB
 1. **抓取**:Playwright 模拟浏览器访问 Mercari / Yahoo 拍卖 / Rakuten 三个平台,按关键词提取商品标题、价格、链接、图片。
 2. **品牌白名单**:按 `config.yaml` 里的品牌关键词做大小写无关的子串匹配,过滤掉不相关商品。
 3. **URL 清洗与去重**:剔除无效链接;同一轮内同一 URL 只保留第一条(价格冲突只计数、不静默覆盖);同一商品若与历史记录的价格完全相同则跳过,不重复送 LLM。
-4. **LLM 判断**:按 15 条一批送 DeepSeek(主)/硅基流动(备),带上 `rules.md` 和 `cases.md` 作为上下文。LLM **只输出三件事**:品牌识别、是否命中金矿/踩坑案例、国内参考行情价——不计算利润、成本、税。
-5. **Python 算账与打标签**:用确定性公式换算汇率、算总成本(运费手续费 + 满一定基础价比例后的关税),再按利润把商品分进五档:**跳过 / 盲盒 / 观望 / 推荐 / 强推**。具体阈值以 `ai_filter.py` 的 `assign_tag()` 和 `rules.md` 第七条为准,LLM 判断的"是否金矿"不再影响最终标签。
-6. **落库**:不论最终是否被淘汰,只要完成利润计算就写入 `kendama.db` 的 `evaluations` 表;同时维护 `listings`/`price_history` 记录商品身份与价格轨迹,用于识别降价信号。
-7. **推送**:利润 ≥ 0 的候选写入 `daily_pool.json`,按利润降序取前 15 条推送飞书交互卡片,带 HMAC 签名的反馈按钮。
-8. **反馈闭环**:点击按钮 → `feedback_server.py` 校验签名(缺签名或签名不匹配一律拒绝,返回 403)→ 同时写入两个库:兼容旧链路的 `feedback.db`,以及作为主历史库的 `kendama.db.feedback_events`。
-9. **每日汇总**:每天 22:00(可配置)把当天 `daily_pool.json` 去重排序后推送一张汇总卡片;**推送成功才清空候选池**,失败则保留、等待下一次重试。
-10. **周报与偏好信号**:`--weekly-review`/`--refresh-signals` 只读 `kendama.db`,生成可读的统计报告,不反向修改规则文件、prompt 或数据库。
+4. **LLM 评估**:按 15 条一批送 DeepSeek(主)/硅基流动(备),带上 `rules.md` 和 `cases.md` 作为上下文。LLM **只输出三件事**:品牌识别、是否命中金矿/踩坑案例、国内参考行情价——不计算利润、成本、税。
+5. **Python 确定性算账**:用确定性公式换算汇率、算总成本(运费手续费 + 满一定基础价比例后的关税),再按利润把商品分进五档:**跳过 / 盲盒 / 观望 / 推荐 / 强推**。具体阈值以 `ai_filter.py` 的 `assign_tag()` 和 `rules.md` 第七条为准,LLM 判断的"是否金矿"不再影响最终标签。
+6. **评估结果持久化**:不论最终是否被淘汰,只要完成利润计算就写入 `kendama.db` 的 `evaluations` 表;同时维护 `listings`/`price_history` 记录商品身份与价格轨迹,用于识别降价信号。**这一步在判断利润正负之前发生**,负利润的"跳过"商品也会留档,只是不会进入后面任何推送环节。
+7. **利润分流(只有这一次判断)**:完成落库之后,才判断利润是否 ≥ 0。利润 < 0 的商品到此为止,标记"跳过",不再出现在 `daily_pool.json` 或飞书里。利润 ≥ 0 的商品形成唯一一份**"可推送候选"**集合,后面两个输出都从这份集合派生,不是两个独立分支。
+8. **两个输出,同一份候选集合**:
+   - **全量**写入 `daily_pool.json`,供当天 22:00 的汇总使用;
+   - 按利润降序**取前 15 条**,推送本轮飞书即时交互卡片,带 HMAC 签名的反馈按钮。
+9. **反馈闭环**:点击按钮 → `feedback_server.py` 校验签名(缺签名或签名不匹配一律拒绝,返回 403)→ 同时写入两个库:兼容旧链路的 `feedback.db`,以及作为主历史库的 `kendama.db.feedback_events`。
+10. **每日汇总**:每天 22:00(可配置)从 `daily_pool.json` 读取当天累计的全部候选,去重排序后推送一张汇总卡片;**推送成功才清空候选池**,失败则保留、等待下一次重试。这是一份独立于"即时 Top 15"的汇总,不会互相覆盖。
+11. **周报与偏好信号**:`--weekly-review`/`--refresh-signals` 只读 `kendama.db`,生成可读的统计报告,不反向修改规则文件、prompt 或数据库。
 
 ### 为什么换掉 PushPlus
 
