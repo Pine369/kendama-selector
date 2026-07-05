@@ -240,17 +240,28 @@ def filter_single_batch(items, batch_num, total_batches):
     return []
 
 
-def _is_valid_url(url):
-    """商品链接是否可用于推送。图片链接缺失不受此约束,单独处理。"""
+def is_valid_url(url):
+    """商品链接是否可用于推送。图片链接缺失不受此约束,单独处理。
+    公开函数(main.py 在写 SQLite 影子数据前也复用同一套判定标准)。"""
     return isinstance(url, str) and url.strip().lower().startswith(("http://", "https://"))
 
 
 def _enrich_with_profit(candidates):
-    """用 Python 算利润、补字段、判定标签。profit < 0 的、缺有效 URL 的都会被过滤掉。"""
-    enriched = []
+    """用 Python 算利润、补字段、判定标签。返回 (pushable_items, all_evaluated_items):
+
+    - pushable_items: 利润 >= 0 的候选,字段和行为与此前完全一致,
+      用于 daily_pool.json / 飞书推送。
+    - all_evaluated_items: 包含 pushable_items,以及利润 < 0 但已完成成本/利润计算的商品——
+      这些商品 tag 固定写"跳过"(与 rules.md 第七条"跳过"档一致),
+      estimated_profit/total_cost/taxed 仍是真实计算值,只是不进入推送。
+
+    缺有效 URL、缺价格字段的候选仍然被跳过,不出现在任一列表(从未真正完成利润计算)。
+    """
+    pushable = []
+    all_evaluated = []
     skipped_no_url = 0
     for item in candidates:
-        if not _is_valid_url(item.get("url")):
+        if not is_valid_url(item.get("url")):
             skipped_no_url += 1
             continue
 
@@ -263,27 +274,46 @@ def _enrich_with_profit(candidates):
 
         profit, base, cost, taxed = calculate_profit(price_jpy, ref_price)
         tag = assign_tag(profit, item.get("is_gold_mine", False))
-        if tag is None:
-            logger.info(f"过滤亏损商品: {str(item.get('brand', ''))[:20]} 利润 ¥{profit}")
-            continue
 
         item["price_cny"] = base       # 日元换算成人民币(基础价,不含运费税)
         item["total_cost"] = cost      # 总成本(含运费手续费,可能含税)
         item["estimated_profit"] = round(profit)
         item["taxed"] = taxed
+
+        if tag is None:
+            logger.info(f"过滤亏损商品: {str(item.get('brand', ''))[:20]} 利润 ¥{profit}")
+            item["tag"] = "跳过"
+            all_evaluated.append(item)
+            continue
+
         item["tag"] = tag
-        enriched.append(item)
+        pushable.append(item)
+        all_evaluated.append(item)
 
     if skipped_no_url:
         logger.info(f"跳过缺少有效 URL 的候选: {skipped_no_url} 条")
 
-    return enriched
+    return pushable, all_evaluated
 
 
 def evaluate_with_ai(items, batch_size=15):
-    """对外主入口。返回按利润降序排好的前 15 条候选。"""
+    """对外主入口。返回 (top_items, all_evaluated_items):
+    top_items 是按利润降序排好的前 15 条,推送/daily_pool 口径完全不变;
+    all_evaluated_items 是全部完成成本/利润计算的候选,包含 top_items 的来源集合
+    (利润 >= 0)以及利润 < 0 被标记为"跳过"的商品,供 main.py 写入 SQLite evaluations 留档
+    (ai_filter.py 本身不导入 sqlite3、不碰任何数据库,也不因为这份留档改变推送内容)。"""
     if not items:
-        return []
+        return [], []
+
+    # LLM 输出的 JSON schema 里既不带 category,也不带 main.py 算好的价格变动信号,
+    # 评估后按 url 从原始候选透传回来,不能被 LLM 输出覆盖或丢失。
+    _PASSTHROUGH_FIELDS = (
+        "category", "previous_price_jpy", "price_drop_jpy", "price_drop_pct", "is_price_drop",
+    )
+    url_to_passthrough = {
+        item.get("url"): {f: item.get(f) for f in _PASSTHROUGH_FIELDS}
+        for item in items if item.get("url")
+    }
 
     batches = [items[i:i + batch_size] for i in range(0, len(items), batch_size)]
     all_candidates = []
@@ -294,29 +324,43 @@ def evaluate_with_ai(items, batch_size=15):
             time.sleep(2)
 
     if not all_candidates:
-        return []
+        return [], []
 
-    # 1. Python 算利润,过滤亏损
-    enriched = _enrich_with_profit(all_candidates)
-    if not enriched:
+    # 1. Python 算利润、判标签;pushable 只含利润 >= 0 的(推送口径),
+    #    all_evaluated 额外包含利润 < 0 但已完成计算的"跳过"商品(仅供留档)。
+    pushable, all_evaluated = _enrich_with_profit(all_candidates)
+
+    # 2. 补回 LLM 输出里丢失的 category / 价格变动字段,对全部已评估的商品都做
+    #    (即使利润 < 0 被标记"跳过"的商品,也保留价格变动信息,只是不参与推送)
+    for item in all_evaluated:
+        passthrough = url_to_passthrough.get(item.get("url"), {})
+        if not item.get("category"):
+            item["category"] = passthrough.get("category")
+        item["previous_price_jpy"] = passthrough.get("previous_price_jpy")
+        item["price_drop_jpy"] = passthrough.get("price_drop_jpy")
+        item["price_drop_pct"] = passthrough.get("price_drop_pct")
+        item["is_price_drop"] = passthrough.get("is_price_drop", False)
+
+    if not pushable:
         logger.info("所有候选利润 < 0,过滤后无可推送商品")
-        return []
+        return [], all_evaluated
 
-    logger.info(f"利润过滤后剩 {len(enriched)}/{len(all_candidates)} 条")
+    logger.info(f"利润过滤后剩 {len(pushable)}/{len(all_candidates)} 条")
 
-    # 2. 图片走代理(对老链接更稳)
-    for item in enriched:
+    # 3. 图片走代理(对老链接更稳),只对会被推送展示的候选做
+    for item in pushable:
         item["img_url"] = ensure_proxied(item.get("img_url", ""))
 
-    # 3. 写入当日候选池(用于晚间汇总)
-    _append_to_daily_pool(enriched)
+    # 4. 写入当日候选池(用于晚间汇总),只写利润 >= 0 的,行为与此前完全一致
+    _append_to_daily_pool(pushable)
 
-    # 4. 按利润降序,取前 15
-    return sorted(
-        enriched,
+    # 5. 按利润降序,取前 15 作为实际推送候选
+    top_items = sorted(
+        pushable,
         key=lambda x: x.get("estimated_profit", 0),
         reverse=True,
     )[:15]
+    return top_items, all_evaluated
 
 
 def _append_to_daily_pool(candidates):

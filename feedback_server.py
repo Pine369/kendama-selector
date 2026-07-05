@@ -26,6 +26,8 @@ from datetime import datetime
 from flask import Flask, request
 from dotenv import load_dotenv
 
+import db
+
 load_dotenv()
 
 logging.basicConfig(
@@ -104,6 +106,25 @@ def feedback():
         logger.error(f"写入失败: {e}")
         return "db error", 500
 
+    # 旧库写入成功后,追加写入 kendama.db.feedback_events 留存完整历史(不覆盖、可查多条)。
+    # 这里额外包一层 try/except:虽然 db.py 的公开函数自己已经吞异常,但这是 HTTP 请求处理
+    # 路径,任何未预期的异常都不能让本已成功的合法反馈请求返回非 200。
+    try:
+        listing_id = db.get_listing_id_by_url(url) if url else None
+        dedupe_key = f"live:{url}:{action}:{reason}:{datetime.now().isoformat()}"
+        db.record_feedback_event(
+            listing_id=listing_id,
+            legacy_item_id=item_id,
+            url=url,
+            action=action,
+            reason=reason,
+            source="live",
+            dedupe_key=dedupe_key,
+            created_at=ts,
+        )
+    except Exception as e:
+        logger.error(f"写入 feedback_events 失败(不影响反馈接口): {e}")
+
     # 极简页面,浏览器跳过来看到这个就行
     return f"""
     <!DOCTYPE html>
@@ -130,5 +151,7 @@ def health():
 
 if __name__ == "__main__":
     init_db()
+    if not db.init_db():
+        logger.warning("kendama.db 初始化失败,反馈事件追加写入将被跳过")
     logger.info(f"反馈接收端启动,端口 {PORT}")
     app.run(host="0.0.0.0", port=PORT)

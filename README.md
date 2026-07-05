@@ -250,6 +250,42 @@ python feedback_server.py
 - 每 60 分钟扫描一次
 - 每天 22:00 输出全天汇总
 
+#### 运行方式
+
+```bash
+# 持续运行模式(默认):启动即扫描一次,之后进入定时循环
+python main.py
+
+# 单轮模式:完整扫描一轮(真实抓取 + 真实 LLM + 真实飞书推送)后直接退出,不进入定时循环
+python main.py --once
+
+# 单轮模式 + 范围收窄:只扫指定平台/关键词,并覆盖每平台每关键词的抓取上限
+python main.py --once --platform Mercari --keyword Kendama --max-items 30
+
+# 反馈历史一次性导入:把旧 feedback.db 中已有的最后状态导入 kendama.db.feedback_events,
+# 不扫描、不推送,只初始化数据库、导入、打印导入数量后退出
+python main.py --migrate-feedback
+
+# 每周复盘:生成一份 Markdown 报告到 reports/weekly_review_YYYYMMDD.md,默认统计最近 7 天
+# 不扫描、不调用 LLM、不推送飞书、不改写 feedback.db
+python main.py --weekly-review
+python main.py --weekly-review --days 14
+
+# 偏好信号:从 kendama.db 生成 personalized_signals.md(仅供人工审核,不修改数据库,
+# 本轮不会被自动注入 LLM prompt)
+python main.py --refresh-signals
+
+# 只读状态摘要:不扫描、不调用 LLM、不推送飞书、不创建数据库
+python main.py --status
+```
+
+> 完整的运行契约(每个命令的副作用边界、数据文件说明、故障排查方式、V1 验收范围)
+> 见根目录 [`SKILL.md`](SKILL.md)。
+
+`--platform`/`--keyword`/`--max-items` 只在 `--once` 模式下生效,且不会修改 `config.yaml` 本身。
+`--migrate-feedback`/`--weekly-review`/`--refresh-signals` 三个维护命令互斥,且都不能与
+`--once`/`--platform`/`--keyword`/`--max-items` 同时使用。
+
 ### 反馈端暴露到公网
 
 `feedback_server.py` 监听本地 5001 端口,飞书按钮点击需要它能从公网访问。

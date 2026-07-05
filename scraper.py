@@ -182,13 +182,17 @@ PARSERS = {
 # ==========================================
 # 主流程
 # ==========================================
-def scrape_multiple_keywords(keywords, max_items_per_platform=30):
+def scrape_multiple_keywords(keywords, max_items_per_platform=30, platforms=None):
     """
     遍历所有 (平台, 关键词) 组合,返回合并后的商品列表。
 
     每条商品包含: category / title / price / url / img_url
+
+    platforms 为 None 时使用模块级 PLATFORMS(默认三平台全跑);
+    传入子集时只循环给定平台,不影响 parser、延迟、URL 处理逻辑。
     """
-    logger.info(f"开始抓取 {len(keywords)} 个关键词,{len(PLATFORMS)} 个平台")
+    target_platforms = platforms if platforms is not None else PLATFORMS
+    logger.info(f"开始抓取 {len(keywords)} 个关键词,{len(target_platforms)} 个平台")
     all_items = []
 
     with sync_playwright() as p:
@@ -199,7 +203,7 @@ def scrape_multiple_keywords(keywords, max_items_per_platform=30):
         )
         page = context.new_page()
 
-        for platform in PLATFORMS:
+        for platform in target_platforms:
             logger.info(f"平台: {platform}")
 
             for keyword in keywords:

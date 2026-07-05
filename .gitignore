@@ -6,6 +6,9 @@ __pycache__/
 *.json
 scraper_health.json
 *.db
+kendama.db
 rules.md
 cases.md
+personalized_signals.md
+reports/
 全网通缉报告*
