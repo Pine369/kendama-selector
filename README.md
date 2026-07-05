@@ -7,7 +7,10 @@
 通过**飞书自定义机器人**推送到手机,点击卡片按钮即可记录决策,
 形成"AI 推荐 → 我反馈 → 规则迭代"的闭环。
 
-> **项目状态**:个人使用中,持续优化。
+> **项目状态**:个人使用中,持续优化(V1)。
+> **定位说明**:这是一个**工具化的选品工作流**,不是能自主决策或自动下单的 Agent——
+> 所有候选商品只会推送到飞书,买不买永远由我人工判断;规则、案例库、利润阈值
+> 也都是人工维护的文件和确定性代码,系统不会自我修改判断标准。
 
 ---
 
@@ -34,7 +37,7 @@
 这些知识在我脑子里,不在 AI 训练数据里。
 
 所以这个项目的核心,不是用 AI——
-**是把我的判断标准和选品经验,结构化成 AI 能读懂的规则**。
+**是把我的判断标准和选品经验,结构化成 AI 能读懂的规则,再用确定性代码把关键计算钉死**。
 
 ---
 
@@ -48,9 +51,8 @@
 
 每条推送是一张飞书交互卡片,完整展示:
 煤炉日元价 + 换算的价格 + 国内参考价 + 成本拆解
-+ 利润 + 判定标签+ 一句话理由。
-底部三个按钮记录我的反馈,
-点击后跳转到反馈端。
++ 利润 + 判定标签 + 一句话理由。
+底部三个按钮记录我的反馈,点击后跳转到反馈端。
 
 信息密度足以让我立马就能做初步判断,
 节省的就是过去花在翻页 + 心算上的时间。
@@ -68,8 +70,8 @@
 人工浏览很难全天盯盘。
 
 不过单一案例不能证明系统普遍有效。
-现在按钮反馈链路已经接通,我会持续记录推送和实际决策的对应关系,
-后续给出更完整的统计。
+反馈按钮和 SQLite 历史留存都已经接通,每周的复盘报告
+(`--weekly-review`)会持续积累推送和实际决策的对应关系。
 
 ---
 
@@ -86,8 +88,9 @@ flowchart TB
     subgraph Pipeline["处理流水线"]
         B[Playwright 爬虫]
         C[品牌白名单预筛]
-        D[LLM 判断<br/>品牌/参考价/金矿案例]
-        E[Python 算账<br/>成本/税/利润]
+        C2[URL 清洗/去重<br/>同价格历史跳过]
+        D[LLM 判断<br/>品牌 · 金矿/踩坑案例 · 国内参考价]
+        E[Python 算账<br/>成本/税/利润 → 五档标签]
     end
 
     subgraph Knowledge["领域知识"]
@@ -95,58 +98,55 @@ flowchart TB
         K2[cases.md<br/>实战案例]
     end
 
+    subgraph Storage["持久化"]
+        S1[(kendama.db<br/>scan_runs/listings/price_history/<br/>evaluations/feedback_events)]
+        S2[daily_pool.json<br/>当日候选池]
+        S3[(feedback.db<br/>兼容性反馈库)]
+    end
+
     subgraph Outputs["输出"]
-        O1[飞书交互卡片<br/>每 60 分钟]
-        O2[每日汇总<br/>22:00]
+        O1[飞书交互卡片<br/>每 N 分钟]
+        O2[每日汇总卡片<br/>22:00]
+        O3[周报 / 偏好信号<br/>--weekly-review / --refresh-signals]
     end
 
     subgraph Feedback["反馈闭环"]
-        F1[按钮点击]
-        F2[Flask 接收端]
-        F3[(SQLite<br/>feedback.db)]
+        F1[按钮点击<br/>带 HMAC 签名]
+        F2[Flask 反馈端<br/>签名校验]
     end
 
-    Storage[(daily_pool.json<br/>当日候选池)]
-
-    Sources --> B
-    B --> C
-    C -->|匹配目标品牌| D
+    Sources --> B --> C --> C2
     K1 --> D
     K2 --> D
-    D --> E
-    E -->|利润≥0| O1
-    E -->|利润<0| Discard[淘汰]
-    E --> Storage
-    Storage -->|每日去重| O2
-    O1 --> F1
-    F1 --> F2
-    F2 --> F3
-    F3 -.每周复盘.-> K1
-    F3 -.每周复盘.-> K2
+    C2 -->|送 LLM| D --> E
+    E -->|全部完成计算的候选| S1
+    E -->|利润 ≥ 0| S2
+    E -->|利润 ≥ 0,取前 15| O1
+    S2 -->|每日去重排序| O2
+    O1 --> F1 --> F2
+    F2 --> S3
+    F2 --> S1
+    S1 -.只读统计,不反向修改规则.-> O3
 
     style Knowledge fill:#fff4e6
     style Sources fill:#e6f3ff
     style Outputs fill:#e6ffe6
     style Feedback fill:#ffe6f0
-    style Discard fill:#f5f5f5
+    style Storage fill:#eef2ff
 ```
 
 ### 核心流程
 
-1. **抓取**:Playwright 模拟浏览器访问三个平台,提取商品标题、价格、链接、图片。
-2. **本地预筛**:基于品牌白名单做字符串匹配,过滤大部分无关商品,省 LLM token。
-3. **LLM 判断**:按 15 条一批送给 DeepSeek,带上 `rules.md` 和 `cases.md` 作为上下文。
-   LLM **只输出三件事**:品牌识别、是否命中金矿/踩坑案例、国内参考行情价。
-   利润、成本、税不让 LLM 算——见下方"设计决策"。
-4. **Python 算账**:用确定性公式算总成本(含运费、手续费、关税)和利润,
-   利润 < 0 的直接淘汰,利润 ≥ 30 标"推荐",命中金矿 + 利润 ≥ 100 标"强推",
-   0-30 之间标"盲盒"。
-5. **推送**:每条候选生成一张飞书交互卡片,完整展示日元价 + 人民币换算价 +
-   总成本拆解 + 利润,以及"买入 / 弃-太贵 / 弃-成色差"三个反馈按钮。
-6. **反馈闭环**:点击按钮跳转到 `feedback_server.py` 的接收端,
-   把决策(item_id、动作、原因、时间戳)写进 SQLite。
-7. **每日汇总**:22:00 触发,把当天 `daily_pool.json` 去重后按利润降序拼成一张紫色卡片。
-   汇总环节不走 LLM——LLM 负责"判断商品",Python 负责"排序套模板"。
+1. **抓取**:Playwright 模拟浏览器访问 Mercari / Yahoo 拍卖 / Rakuten 三个平台,按关键词提取商品标题、价格、链接、图片。
+2. **品牌白名单**:按 `config.yaml` 里的品牌关键词做大小写无关的子串匹配,过滤掉不相关商品。
+3. **URL 清洗与去重**:剔除无效链接;同一轮内同一 URL 只保留第一条(价格冲突只计数、不静默覆盖);同一商品若与历史记录的价格完全相同则跳过,不重复送 LLM。
+4. **LLM 判断**:按 15 条一批送 DeepSeek(主)/硅基流动(备),带上 `rules.md` 和 `cases.md` 作为上下文。LLM **只输出三件事**:品牌识别、是否命中金矿/踩坑案例、国内参考行情价——不计算利润、成本、税。
+5. **Python 算账与打标签**:用确定性公式换算汇率、算总成本(运费手续费 + 满一定基础价比例后的关税),再按利润把商品分进五档:**跳过 / 盲盒 / 观望 / 推荐 / 强推**。具体阈值以 `ai_filter.py` 的 `assign_tag()` 和 `rules.md` 第七条为准,LLM 判断的"是否金矿"不再影响最终标签。
+6. **落库**:不论最终是否被淘汰,只要完成利润计算就写入 `kendama.db` 的 `evaluations` 表;同时维护 `listings`/`price_history` 记录商品身份与价格轨迹,用于识别降价信号。
+7. **推送**:利润 ≥ 0 的候选写入 `daily_pool.json`,按利润降序取前 15 条推送飞书交互卡片,带 HMAC 签名的反馈按钮。
+8. **反馈闭环**:点击按钮 → `feedback_server.py` 校验签名(缺签名或签名不匹配一律拒绝,返回 403)→ 同时写入两个库:兼容旧链路的 `feedback.db`,以及作为主历史库的 `kendama.db.feedback_events`。
+9. **每日汇总**:每天 22:00(可配置)把当天 `daily_pool.json` 去重排序后推送一张汇总卡片;**推送成功才清空候选池**,失败则保留、等待下一次重试。
+10. **周报与偏好信号**:`--weekly-review`/`--refresh-signals` 只读 `kendama.db`,生成可读的统计报告,不反向修改规则文件、prompt 或数据库。
 
 ### 为什么换掉 PushPlus
 
@@ -154,45 +154,35 @@ v1 用 PushPlus + 微信,卡片里的"按钮"其实是超链接,
 微信内置浏览器不会自动打开外部域名,只能复制链接——反馈链路走不通。
 
 换成飞书自定义机器人之后,卡片的 button 是原生组件,
-点击直接发起 HTTPS 请求到反馈端点,无需用户做任何额外操作。
-反馈端和主程序部署在同一台腾讯云轻量服务器上,
-公网 IP + 防火墙开放端口直接对外提供服务,零额外成本。
+点击按钮会打开带签名的 HTTPS 反馈链接,由反馈端完成校验和写入,无需用户做任何额外操作。
 
-### 运行方式
-
-本地开发完成后部署到腾讯云轻量应用服务器,
-通过 `nohup` 让 Python 进程后台运行,日志统一写入 `output.log`。
-反馈接收端作为独立进程在同一台服务器上后台运行,
-监听 5001 端口,通过开放防火墙规则对外暴露。
-
-<div align="center">
-  <img src="https://github.com/user-attachments/assets/2a22133c-39b8-4abd-b97e-4836e332ee69" width="700">
-</div>
-
-上图为腾讯云服务器上的实时日志:
-本轮抓取 302 条 → 本地预筛后剩 64 条 → 5 批送 DeepSeek 评估 → 筛出 24 条候选 → 推送成功。
-全过程约 50 秒,DeepSeek API 5 次调用全部 200 OK。
+**注意**:飞书对卡片 button 的 `url` 字段有 HTTPS 要求。如果 `FEEDBACK_URL`
+配的是 `http://`,飞书会静默丢弃整条按钮元素(卡片能收到,但看不到任何按钮),
+不会报错也不会提示。具体见下方"反馈端暴露到公网"。
 
 ### 设计决策
 
-- **LLM 只判断,Python 算账**(v2 关键改动):
+- **LLM 只判断,Python 算账**(关键设计):
   早期把利润公式写进 prompt 让 LLM 算,但实际跑下来 LLM 会"凭印象估个数"——
   6000 日元的商品它能输出 ¥130 利润(实际 ¥24.9),9200 日元的商品它说 ¥114
   利润(实际亏损 ¥138)。大模型做多步骤算术本来就不可靠。
-  v2 把利润、税、成本全部移到 Python 用确定性公式算,
+  现在利润、税、成本全部由 Python 用确定性公式计算,
   LLM 只负责给出"国内参考行情价"这个判断,数字从此不会再编。
 - **用 Playwright 而不是 requests**:三个平台都有反爬,
   Playwright 模拟真实浏览器更稳定。
-- **先本地预筛再送 LLM**:泛词搜索一次返回 300+ 商品(本轮 302 条),大部分品牌不在范围内。
-  本地白名单匹配可剔除约 80%,实际只送 50-80 条给 LLM,显著降低调用成本。
+- **先本地预筛再送 LLM**:泛词搜索一次可能返回几百条商品,大部分品牌不在范围内。
+  本地白名单匹配 + URL/历史价格去重,能显著减少实际送 LLM 的条数,降低调用成本。
 - **主备 API**:国内访问 API 偶有抖动,主用 DeepSeek 官方,
   备用硅基流动作为兜底,不阻塞业务。
 - **temperature=0**:LLM 默认有随机性,同一商品两次评估可能给出不同结论。
   设为 0 后输出稳定,便于后续做效果回归。
 - **每日汇总不过 LLM**:汇总只是"去重 + 排序 + 套模板",
   这三件事 Python 一行就能搞定,过 LLM 反而不稳定还多花钱。
-- **反馈接收端用 Flask + SQLite**:个人级写入量,没必要上 PostgreSQL。
-  SQLite 单文件,备份和迁移成本几乎为零。
+- **反馈接收端用 Flask + SQLite,并要求 HMAC 签名**:个人级写入量,没必要上 PostgreSQL;
+  但公网暴露的写入端点必须校验签名,否则任何人都能拼 URL 往数据库里灌脏数据。
+- **SQLite 留存全部历史(`kendama.db`)**:`daily_pool.json` 只是"当天候选池",
+  每天汇总后会清空;真正的长期历史(扫描记录、商品、价格轨迹、评估结果、反馈事件)
+  都落在 `kendama.db` 里,供周报和偏好信号使用。
 
 ---
 
@@ -210,7 +200,7 @@ v1 用 PushPlus + 微信,卡片里的"按钮"其实是超链接,
 | DeepSeek | 主用 LLM | https://platform.deepseek.com |
 | 硅基流动 | 备用 LLM | https://siliconflow.cn |
 | 飞书 | 接收推送的群聊 + 自定义机器人 | https://www.feishu.cn |
-| 腾讯云轻量服务器 | 24/7 部署 + 提供公网 IP | https://cloud.tencent.com/product/lighthouse |
+| 云服务器(可选) | 7x24 小时无人值守运行 | 任意云厂商均可,见下方"部署到云服务器" |
 
 ### 安装
 
@@ -225,9 +215,9 @@ pip install -r requirements.txt
 # 安装 Playwright 浏览器
 playwright install chromium
 
-# 配置环境变量
-cp .env.example .env
-# 编辑 .env,填入 DeepSeek API Key、飞书 webhook、反馈端 URL
+# 配置环境变量(注意源文件名是 env.example,没有前导点)
+cp env.example .env
+# 编辑 .env,填入 DeepSeek API Key、飞书 webhook、反馈签名密钥等
 ```
 
 ### 创建飞书机器人
@@ -236,87 +226,81 @@ cp .env.example .env
 2. 群设置 → 群机器人 → 添加机器人 → 自定义机器人
 3. 复制 webhook 地址,填入 `.env` 的 `FEISHU_WEBHOOK`
 
+### 配置反馈签名密钥
+
+`FEEDBACK_SIGNING_SECRET` 用于给反馈按钮链接做 HMAC-SHA256 签名,
+`main.py`(生成链接)和 `feedback_server.py`(校验签名)两边必须使用同一个值。
+
+```bash
+python -c "import secrets; print(secrets.token_hex(32))"
+```
+
+把结果填进 `.env` 的 `FEEDBACK_SIGNING_SECRET`。**不配置这个值(或留占位符文本)
+时,卡片会优雅降级为不带任何反馈按钮,不会报错,但也无法记录反馈。**
+
 ### 运行
 
 ```bash
-# 启动主程序(扫描 + 推送)
+# 启动主程序:立即执行一次扫描,然后进入定时循环
 python main.py
 
-# 启动反馈接收端(可选,但点按钮要靠它)
+# 启动反馈接收端(可选,但点按钮记录反馈要靠它)
 python feedback_server.py
 ```
 
-主程序启动后会立即执行一次扫描,然后进入定时模式:
-- 每 60 分钟扫描一次
-- 每天 22:00 输出全天汇总
+主程序默认进入**持续运行模式**:启动即扫描一次,之后按 `config.yaml` 里配置的
+分钟数(默认 60)循环扫描,每天固定时间(默认 22:00)推送一次全天汇总,
+直到手动终止(Ctrl+C)。
 
-#### 运行方式
+#### 命令一览
 
 ```bash
 # 持续运行模式(默认):启动即扫描一次,之后进入定时循环
 python main.py
 
-# 单轮模式:完整扫描一轮(真实抓取 + 真实 LLM + 真实飞书推送)后直接退出,不进入定时循环
+# 单轮模式:完整扫描一轮(真实抓取 + 真实 LLM + 真实飞书推送)后直接退出
 python main.py --once
 
-# 单轮模式 + 范围收窄:只扫指定平台/关键词,并覆盖每平台每关键词的抓取上限
+# 单轮模式 + 范围收窄:只扫指定平台/关键词,覆盖每平台每关键词的抓取上限
+# --platform/--keyword 可重复传入;--platform/--keyword/--max-items 只能配合 --once 使用
 python main.py --once --platform Mercari --keyword Kendama --max-items 30
 
-# 反馈历史一次性导入:把旧 feedback.db 中已有的最后状态导入 kendama.db.feedback_events,
-# 不扫描、不推送,只初始化数据库、导入、打印导入数量后退出
+# 反馈历史导入:把 feedback.db 里既有的历史反馈幂等导入 kendama.db.feedback_events(不产生重复事件)
 python main.py --migrate-feedback
 
-# 每周复盘:生成一份 Markdown 报告到 reports/weekly_review_YYYYMMDD.md,默认统计最近 7 天
-# 不扫描、不调用 LLM、不推送飞书、不改写 feedback.db
+# 每周复盘:生成 reports/weekly_review_YYYYMMDD.md,默认统计最近 7 天
 python main.py --weekly-review
 python main.py --weekly-review --days 14
 
-# 偏好信号:从 kendama.db 生成 personalized_signals.md(仅供人工审核,不修改数据库,
-# 本轮不会被自动注入 LLM prompt)
+# 偏好信号:从 kendama.db 生成 personalized_signals.md(仅供人工审核)
 python main.py --refresh-signals
 
 # 只读状态摘要:不扫描、不调用 LLM、不推送飞书、不创建数据库
 python main.py --status
 ```
 
-> 完整的运行契约(每个命令的副作用边界、数据文件说明、故障排查方式、V1 验收范围)
-> 见根目录 [`SKILL.md`](SKILL.md)。
+`--migrate-feedback`/`--weekly-review`/`--refresh-signals`/`--status` 四个维护命令互斥
+(一次只能用一个),且都不能与 `--once`/`--platform`/`--keyword`/`--max-items` 同时使用。
 
-`--platform`/`--keyword`/`--max-items` 只在 `--once` 模式下生效,且不会修改 `config.yaml` 本身。
-`--migrate-feedback`/`--weekly-review`/`--refresh-signals` 三个维护命令互斥,且都不能与
-`--once`/`--platform`/`--keyword`/`--max-items` 同时使用。
+> 每个命令的完整副作用边界(是否抓取/调用 LLM/推送飞书/写数据库)、
+> 五档标签的判定阈值、故障排查方式,见根目录 [`SKILL.md`](SKILL.md)。
 
 ### 反馈端暴露到公网
 
-`feedback_server.py` 监听本地 5001 端口,飞书按钮点击需要它能从公网访问。
+`feedback_server.py` 默认监听本地 5001 端口(可用 `FEEDBACK_PORT` 覆盖),
+飞书按钮点击需要它能从公网访问,并且**必须是 HTTPS**——
+飞书会静默丢弃 `http://` 的按钮 URL(卡片能收到,按钮却看不见,且不报错)。
 
-**首选方案:腾讯云直连(零成本)**
+常见做法(任选其一):
 
-如果你和我一样,反馈端跟主程序部署在同一台腾讯云轻量服务器上,
-那么这台机器本身就有公网 IP,不需要任何穿透工具。
+1. **域名 + 反向代理 + 证书**:如果服务器已有域名,用 Nginx 或 Caddy 做反向代理,
+   把 `/feedback` 转发到本地 5001 端口,证书用 Let's Encrypt(免费、自动续期)。
+   配置好后把 `https://你的域名/feedback` 填进 `.env` 的 `FEEDBACK_URL`。
+2. **临时隧道工具**:本地开发或还没有域名时,可以用任意提供 HTTPS 公网地址的
+   内网穿透工具,把本地 5001 端口映射出去,拿到的 `https://` 地址填进 `FEEDBACK_URL`。
 
-1. 控制台 → 轻量应用服务器 → 实例详情 → **防火墙** → 添加规则:
-   - 协议:TCP
-   - 端口:5001
-   - 来源:0.0.0.0/0
-
-2. 如果服务器上开了 ufw,顺手放行:
-   ```bash
-   sudo ufw allow 5001/tcp
-   ```
-
-3. 拿到公网 IP,填进 `.env`:
-   ```bash
-   curl ifconfig.me
-   ```
-   ```
-   FEEDBACK_URL=http://你的公网IP:5001/feedback
-   ```
-
-实测飞书自定义机器人接受 http 协议的 button URL,按钮可以正常点击跳转。
-但 http 有几个不足:浏览器会标"不安全"、反馈数据明文传输理论上可被中间人篡改、
-飞书未来可能收紧策略。**长期还是建议升级 HTTPS**。
-
+启动时 `main.py` 会打印一行诊断日志,提示 `FEEDBACK_URL`/`FEEDBACK_SIGNING_SECRET`
+是否已正确配置(而非占位符文本),方便排查"按钮看不见"的问题。
 
 ### 适配其他品类
 
@@ -326,55 +310,95 @@ python main.py --status
 - `rules.md`:你的判断规则(品牌、价格区间、款式偏好等)
 - `cases.md`:你的实战案例(过去赚到的、踩过的坑)
 
-代码层面不需要改动,LLM 会读这两个文件作为上下文。
+代码层面不需要改动,LLM 会读这两个文件作为上下文;
+成本/利润公式和标签阈值是代码里的确定性规则,如果新品类的成本结构不同,
+需要同步调整 `ai_filter.py` 的 `calculate_cost()`/`assign_tag()`。
 
-### 部署到云服务器
+### 部署到云服务器(通用流程)
 
-我个人使用腾讯云轻量应用服务器(2 核 2G,Ubuntu)长期运行。
+本项目不依赖任何特定云厂商,以下流程适用于任意能跑 systemd 的 Linux 服务器:
 
 ```bash
-# 上传项目
-scp -r kendama-selector/ user@your-server:/home/user/
-ssh user@your-server
-cd kendama-selector
+# 1. 本地开发完成后提交并推送
+git add <改动的文件>
+git commit -m "..."
+git push
 
-# 安装依赖(只需一次)
+# 2. 服务器上拉取代码
+ssh user@your-server
+cd /path/to/kendama-selector
+git pull
+
+# 3. 安装依赖(首次部署,或依赖变更后执行)
 pip install -r requirements.txt
 playwright install chromium
-playwright install-deps  # Linux 需要额外的系统依赖
-
-# 后台运行主程序
-nohup python main.py > output.log 2>&1 &
-
-# 后台运行反馈接收端
-nohup python feedback_server.py > feedback.log 2>&1 &
-
-# 查看日志
-tail -f output.log
-tail -f feedback.log
-
-# 查看反馈记录
-sqlite3 feedback.db "SELECT * FROM feedback ORDER BY ts DESC LIMIT 20;"
-
-# 停止
-ps aux | grep "main.py\|feedback_server.py"
-kill <PID>
+playwright install-deps   # Linux 通常需要额外的系统依赖
+cp env.example .env       # 首次部署需要;编辑 .env 填入真实密钥,不要提交到 Git
 ```
 
-每 60 分钟自动扫描一次,24 小时不间断。
-即使本地电脑关机或断网,系统照常运行。
+用 `systemd` 托管扫描服务和反馈服务,比 `nohup` 更适合长期无人值守运行——
+进程崩溃会自动重启,开机自启,日志用 `journalctl` 统一查看。示例 unit 文件
+(路径、用户名按你的服务器实际情况替换,不要照抄):
+
+```ini
+# /etc/systemd/system/kendama-scan.service
+[Unit]
+Description=kendama-selector scanning service
+After=network.target
+
+[Service]
+WorkingDirectory=/path/to/kendama-selector
+ExecStart=/path/to/kendama-selector/.venv/bin/python main.py
+Restart=on-failure
+User=youruser
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```ini
+# /etc/systemd/system/kendama-feedback.service
+[Unit]
+Description=kendama-selector feedback server
+After=network.target
+
+[Service]
+WorkingDirectory=/path/to/kendama-selector
+ExecStart=/path/to/kendama-selector/.venv/bin/python feedback_server.py
+Restart=on-failure
+User=youruser
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now kendama-scan kendama-feedback
+
+# 查看日志
+journalctl -u kendama-scan -f
+journalctl -u kendama-feedback -f
+
+# 部署更新后重启
+sudo systemctl restart kendama-scan kendama-feedback
+```
+
+我个人长期在腾讯云轻量应用服务器(2 核 2G,Ubuntu)上跑这套流程,
+但流程本身与云厂商无关。
 
 ---
 
 ## 运行成本
 
+以我个人的实际使用为例(每小时扫描一次,三平台):
+
 | 项目 | 月成本(人民币) | 说明 |
 |------|--------------|------|
-| 腾讯云轻量服务器 | 约 30 元 | 2 核 2G,新用户首年低价。自带公网 IP |
+| 云服务器 | 视配置和厂商而定 | 2 核 2G 级别的入门配置即可 |
 | DeepSeek API | 约 5-15 元 | 每小时一次,日均约 24 次调用 |
 | 飞书自定义机器人 | 0 元 | 个人和小团队免费 |
-| 域名 / SSL(可选) | 约 1-5 元 | `.top` / `.xyz` 几块钱一年,Let's Encrypt 证书免费 |
-| **合计** | **约 35-50 元/月** | |
+| 域名 / SSL(可选) | 约 1-5 元 | 域名几块钱一年,Let's Encrypt 证书免费 |
 
 如果用 GPT-4 / Claude 替代 DeepSeek,API 成本上升 5-10 倍,
 对剑玉这种客单价不高的品类不划算。
@@ -386,18 +410,45 @@ kill <PID>
 
 ```
 kendama-selector/
-├── main.py                主入口,定时扫描 + 推送
-├── scraper.py             三平台爬虫
-├── ai_filter.py           LLM 评估 + Python 算账 + 每日汇总
-├── feedback_server.py     反馈接收端(Flask + SQLite)
-├── rules.example.md       选品规则(脱敏示例)
-├── cases.example.md       实战案例(脱敏示例)
-├── config.yaml            关键词和品牌白名单
-├── requirements.txt       依赖
-├── .env.example           环境变量模板
-├── Caddyfile.example      Caddy 反代配置(HTTPS 用)
+├── main.py                  主入口:CLI 解析、调度、飞书推送、反馈签名
+├── scraper.py                三平台爬虫(Mercari / Yahoo / Rakuten)
+├── ai_filter.py               LLM 评估 + Python 算利润/打标签 + 每日汇总
+├── db.py                      kendama.db 的表结构与读写(scan_runs/listings/
+│                              price_history/evaluations/feedback_events)
+├── reporting.py                只读周报(--weekly-review)与偏好信号(--refresh-signals)
+├── scraper_health.py           抓取健康检查(连续多轮 0 条时告警)
+├── feedback_server.py          反馈接收端(Flask + SQLite,签名校验)
+├── test_offline_fixes.py       离线单元测试,不联网、不调用真实 LLM/飞书
+├── config.yaml                关键词、品牌白名单、扫描间隔
+├── requirements.txt            依赖
+├── env.example                 环境变量模板
+├── rules.example.md            选品规则(脱敏示例)
+├── cases.example.md            实战案例(脱敏示例)
+├── SKILL.md                    运行契约:命令、数据文件、故障排查、验收范围
 └── .gitignore
 ```
+
+`rules.md`、`cases.md` 是真实业务规则和案例,已在 `.gitignore` 中,不会被提交;
+仓库里能看到的 `rules.example.md`/`cases.example.md` 是脱敏示例。
+
+---
+
+## 数据与文件说明
+
+以下文件在运行过程中产生,均已在 `.gitignore` 中,不应提交到 Git:
+
+| 文件/目录 | 内容 |
+|---|---|
+| `.env` | 真实密钥(DeepSeek/硅基流动/飞书 webhook/反馈签名密钥) |
+| `rules.md` / `cases.md` | 真实选品规则和历史案例 |
+| `daily_pool.json` | 当日候选池,每天汇总推送成功后清空 |
+| `feedback.db` | 兼容性反馈库:`feedback_server.py` 为兼容旧反馈链路仍会写入,同时向 `kendama.db.feedback_events` 追加同一条历史事件;`--migrate-feedback` 用于把既有历史反馈幂等导入主库 |
+| `kendama.db` | 完整历史:`scan_runs`/`listings`/`price_history`/`evaluations`/`feedback_events` |
+| `scraper_health.json` | 抓取健康检查的连续 0 计数状态 |
+| `reports/` | `--weekly-review` 生成的周报目录 |
+| `personalized_signals.md` | `--refresh-signals` 生成的偏好信号,仅供人工审核 |
+
+完整的字段含义、生命周期和故障排查方式见 [`SKILL.md`](SKILL.md)。
 
 ---
 
@@ -406,69 +457,35 @@ kendama-selector/
 这个系统不是"一次性写完就用"——
 **它的价值随着真实反馈的积累而增长**。
 
-### v2 的关键升级:按钮反馈
+### 反馈闭环怎么运作
 
-v1 时代我每天:
-1. 看 AI 推送的候选商品,**手动**在备忘录里标记是否同意它的判断
-2. 实际拍下后,**手动**记录最终的国内成交价
-3. 周末凭印象更新 `rules.md` 和 `cases.md`
+早期我每天手动在备忘录里标记是否同意 AI 的判断,反馈摩擦太大,基本坚持不下来。
+现在的闭环:
 
-这个流程的痛点是反馈摩擦太大——
-看完一条推送如果还要切到备忘录写两行,我大概率会跳过这一步,
-导致复盘时只能凭模糊记忆迭代规则。
-
-v2 把反馈链路接通了:
-- 卡片里直接点"买入 / 弃-太贵 / 弃-成色差"
-- 后端自动写入 SQLite,带商品 url、动作、原因、时间戳
-- 周末复盘时直接 SQL query,看哪些"AI 强推但被我标弃"、哪些"AI 盲盒但被我买入",
-  这些就是规则需要迭代的边界案例
+- 卡片里直接点击反馈按钮
+- 请求带 HMAC 签名,`feedback_server.py` 校验后写入 SQLite(签名缺失或不匹配一律拒绝)
+- 同时追加一条历史事件到 `kendama.db.feedback_events`,不覆盖历史
+- `--weekly-review` 可以看到反馈复盘统计,`--refresh-signals` 能看到按品牌/来源/价格区间
+  聚合出的正负向倾向(仅供人工审核,不会自动回写规则或注入 prompt)
 
 ### 已落地的迭代
 
-基于历史成交数据,我从 `rules.md` v0 迭代到当前版本,主要改进:
-
-- 把"品牌优先级"细化到"品牌 + 漆面 + 款式"三层判断
-- 增加重量门槛(剑玉玩家对重量敏感,过轻过重都会压价,服从正态分布)
-- 把过往交易中的金矿案例和踩坑案例,整理进 `cases.md`
-- **利润计算从 LLM 移到 Python**——LLM 算账靠拍脑袋,Python 用确定性公式才稳
-- **汇率参数化**——`JPY_TO_CNY` 走环境变量,卡片里同时展示日元价和人民币换算价
-- **卡片信息完整化**——展示完整的成本拆解(基础价、税、运费、总成本),
-  方便人工二次核验 AI 的判断
+- 反馈按钮 + HMAC 签名校验,公网端点不接受未签名请求
+- 利润计算从 LLM 移到 Python 确定性公式,标签判定不再依赖 LLM 的"金矿"判断
+- SQLite(`kendama.db`)留存完整历史,不再只依赖会被清空的 `daily_pool.json`
+- 每周复盘报告(`--weekly-review`)和偏好信号(`--refresh-signals`)
+- 抓取健康检查:某平台连续多轮抓到 0 条会触发一次飞书告警
+- 降价识别:基于历史价格判断降价幅度,在卡片里标注 `【降价 ¥N / P%】`
 
 ### 下一步计划
 
-- [x] 推送时附带反馈按钮 ~~(v2 已落地)~~
-- [x] 利润计算移交 Python,LLM 只做判断 ~~(v2 已落地)~~
-
-#### 基于反馈数据的偏好学习
-
-`feedback.db` 里每条"买入 / 放弃"记录,本质就是偏好标签。
-随着样本积累,把这份数据转化为推荐优化的路径从浅到深:
-
-- **短期**:统计买入商品的高频特征(品牌、价位、关键词),
-  自动写成 `personalized_signals.md`,注入 prompt
-- **中期**:用 embedding 算"偏好向量",与商品向量算相似度,与 LLM 评分加权
-- **长期**:在反馈数据上训练轻量分类器(LR / XGBoost)作为二次过滤
-
-保留约 20% 探索性推送,避免只推熟悉款。
-
-#### 关注卖家监控
-
-优质卖家会持续上架同风格商品,盯人比盯关键词命中率更高。
-在 `config.yaml` 加 `watched_sellers` 列表,爬虫逻辑复用现有关键词路径。
-
-#### 价格变动监控
-
-商品挂出来几天后降价是常见信号——卖家急着出,有捡漏空间。
-每轮扫描记录商品历史价(SQLite),降价 ≥5% 或 ≥500 日元的标记 `[降价]` 单独推送。
-工程难点是从三个平台的 URL 分别解析 item_id。
-
-#### 其他
-
-- [ ] 简单的复盘面板(每周自动统计准确率,推送一张周报卡片)
-- [ ] 把 `daily_pool.json` 迁移到 SQLite,和 `feedback.db`、`listings` 统一管理
-- [ ] 为核心纯函数(`calculate_profit` / `assign_tag`)加单元测试
-- [ ] 反馈接收端加签名校验,避免公网 URL 被恶意写入
+- **关注卖家监控**:优质卖家会持续上架同风格商品,盯人比盯关键词命中率更高。
+  计划在 `config.yaml` 加 `watched_sellers` 列表,复用现有关键词路径。
+- **偏好信号的进一步利用**:当前 `personalized_signals.md` 只做可解释的计数/占比统计,
+  仅供人工审核。样本积累到一定量级后,再考虑 embedding 相似度匹配作为 LLM 评分的
+  辅助信号,需要警惕"回声室"——系统越推我买过的款,我就越看不到新机会。
+- **平台原生 item_id 解析**:目前商品身份用 URL 本身做唯一键,`legacy_url_hash`
+  只是为了兼容旧 `feedback.db` 而保留的冗余字段,尚未做三平台 item_id 的规范化解析。
 
 ---
 
@@ -489,68 +506,65 @@ A: 实测下来 LLM 算账不靠谱。
 6000 日元的商品 LLM 算出来 ¥130 利润,Python 用确定性公式算实际只有 ¥24.9;
 9200 日元的 LLM 给 ¥114,实际亏损 ¥138。
 大模型做多步骤算术本来就不可靠,这不是 prompt 能解决的问题。
-正确的分工是:LLM 做判断(品牌、稀缺度、参考价),Python 做算术。
+正确的分工是:LLM 做判断(品牌、稀缺度、参考价),Python 做算术、判定标签。
 两者各做擅长的事,系统才稳。
 
 **Q: 反馈数据怎么转化成更好的推荐?**
 
-A: 见"下一步计划"里的"基于反馈数据的偏好学习"。
-路径是从简到难:
-先从 `feedback.db` 自动提取偏好信号,作为额外 context 注入 prompt(50 行能搞定);
-等样本积累到几百条,再上 embedding 相似度匹配;
-等样本上千,可以训练轻量分类器作为二次过滤。
-但要警惕"回声室"——系统越推我买过的款,我就越看不到新机会,
-需要保留一定比例的探索性推送。
+A: 当前已经落地的是最浅的一层——`--refresh-signals` 从 `kendama.db` 的反馈历史
+统计出按品牌/来源/价格区间的正负向倾向,写成 `personalized_signals.md`
+仅供人工审核,不会自动注入 LLM prompt。更深的路径(embedding 相似度匹配、
+轻量分类器二次过滤)留待样本积累到足够量级后再评估,同时要警惕"回声室"效应,
+保留一定比例的探索性推送。
 
 **Q: 为什么不用 LangChain / Dify / Coze 这类框架?**
 
 A: 我这个项目的核心逻辑很简单——
-爬虫 → 预筛 → LLM 评估 → 推送 → 反馈。
+爬虫 → 预筛 → LLM 评估 → Python 算账/打标签 → 推送 → 反馈。
 用框架反而会引入不必要的复杂度。
-直接写 Python + OpenAI SDK,代码总量不到 700 行,
-调试和修改都很直接。
+直接写 Python + OpenAI SDK,调试和修改都很直接。
 
 **Q: 为什么从 PushPlus 换成飞书?**
 
 A: PushPlus 推到微信的"按钮"本质是超链接,
 微信内置浏览器对外部域名做了拦截,点击只能复制链接,反馈链路走不通。
-飞书自定义机器人的 button 是原生交互组件,点击直接发起 HTTP(S) 请求,
+飞书自定义机器人的 button 是原生交互组件,点击会打开带签名的 HTTPS 反馈链接,再由反馈端完成校验和写入,
 对个人项目是性价比最高的方案。
 
 **Q: 为什么不用 GPT-4 而用 DeepSeek?**
 
-A: 对剑玉这种客单价 300-800 元的品类,API 成本必须算清楚。
+A: 对剑玉这种客单价不高的品类,API 成本必须算清楚。
 DeepSeek 的能力对"按规则筛选商品 + 给参考价"这个任务完全够用,
 但价格只有 GPT-4 的 1/10 左右。
-ToB 销售的本质是 ROI,选模型也一样——**够用且经济**比"最强"重要。
+选模型也是 ROI 问题——**够用且经济**比"最强"重要。
 
 **Q: 适配其他品类需要改什么?**
 
-A: 只需要重写 `rules.md` 和 `cases.md` 两个文件。
-代码层面不需要任何改动。
-我未来计划把这套框架应用到攀岩装备、滑雪装备等品类,
-验证"领域知识结构化"这个方法论的可复用性。
+A: 主要是重写 `rules.md` 和 `cases.md` 两个文件;
+如果新品类的成本结构(汇率、关税规则、运费)不同,还需要同步调整
+`ai_filter.py` 的 `calculate_cost()`。代码框架本身不需要大改。
 
 **Q: 一轮扫描全流程要多久?**
 
-A: 从启动扫描到推送到手机,约 1 分钟。
-爬虫约 30-40 秒(三个平台串行),LLM 评估约 20-30 秒。
-对"每小时一次"的使用频率来说,完全够用。
+A: 从启动扫描到推送到手机,通常在一两分钟量级。
+爬虫需要串行访问三个平台,LLM 评估按批次调用。
+对"每小时一次"的默认扫描频率来说完全够用。
 
 ---
 
 ## 局限与诚实说明
 
 - **不适合大规模商用**:本项目为个人采购场景设计,
-  商业化需要更严谨的反爬、数据库和监控。
+  商业化需要更严谨的反爬策略、并发能力和监控告警。
 - **领域规则需要重写**:`rules.md` 是我的剑玉经验,
   换品类必须重写,代码框架可复用。
 - **LLM 评估不是完全可靠**:即使有规则书,LLM 偶尔会产生幻觉或绕过规则,
   最终决策仍需人工把关——这正是反馈按钮存在的意义。
-- **反馈端没做签名校验**:公网端口暴露后理论上可以被伪造请求灌脏数据,
-  对个人使用影响不大,但商业化必须补上签名/鉴权。
-- **代码不是工业级**:没有完整的单元测试和错误监控,
-  作为个人工具够用,作为生产系统还不够。
+- **抓取依赖页面结构**:三个平台的解析用固定 CSS selector,
+  平台改版可能导致某个平台抓取中断,需要人工更新 `scraper.py` 里的 selector
+  (抓取健康检查会在连续多轮 0 条时告警,帮助尽早发现)。
+- **反馈不是模型准确率的严格验证**:反馈只反映我个人的买入/放弃决策,
+  样本量和视角都有限,不能当成对 LLM 判断正确性的完整、无偏评估。
 
 ---
 
@@ -561,10 +575,10 @@ A: 从启动扫描到推送到手机,约 1 分钟。
 - **LLM**:DeepSeek(主) / DeepSeek via SiliconFlow(备)
 - **调度**:schedule
 - **推送**:飞书自定义机器人(交互式卡片)
-- **反馈接收**:Flask + SQLite
-- **公网暴露**:腾讯云公网 IP 直连(主)/ Nginx + 域名 + Let's Encrypt(可选)
+- **反馈接收**:Flask + SQLite,HMAC-SHA256 签名校验
+- **持久化历史**:SQLite(`kendama.db`)+ 只读统计报告(`reporting.py`)
 - **图片代理**:wsrv.nl(对老链接更稳)
-- **部署**:腾讯云轻量应用服务器(Ubuntu, nohup 后台运行)
+- **部署**:任意 Linux 服务器 + systemd(见"部署到云服务器")
 
 ---
 
@@ -574,7 +588,6 @@ A: 从启动扫描到推送到手机,约 1 分钟。
 - [DeepSeek](https://www.deepseek.com/) —— LLM 推理
 - [飞书开放平台](https://open.feishu.cn/) —— 交互式卡片消息
 - [Flask](https://flask.palletsprojects.com/) —— 反馈接收端
-- [腾讯云轻量应用服务器](https://cloud.tencent.com/product/lighthouse) —— 24/7 部署运行环境
 - [wsrv.nl](https://wsrv.nl/) —— 图片代理服务
 
 ---
@@ -595,6 +608,6 @@ A: 从启动扫描到推送到手机,约 1 分钟。
 本项目的代码部分,主要在 AI 协作下完成。
 
 我负责:领域规则(rules.md / cases.md)、需求设计、决策判断、工程整合。
-代码实现:Claude(Opus 4.7)、Gemini Pro 和 DeepSeek 提供了大量帮助。
+代码实现:Claude、Gemini 和 DeepSeek 提供了大量帮助。
 
 我相信这种"领域专家 + AI 协作"的工作方式会变得越来越普遍。

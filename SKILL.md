@@ -7,6 +7,9 @@
 
 ## 1. 技能定位
 
+**这是一个工具化的选品工作流,不是能自主决策或自动下单的 Agent。** 它只做"抓取 → 筛选 →
+评估 → 推送"这条确定性流水线,买不买、要不要调整规则,永远由人工决定。
+
 **它解决什么问题**:剑玉(kendama)跨境采销选品。每天从 Mercari、Yahoo 拍卖、Rakuten 三个日本二手平台
 抓取商品,结合人工写好的规则书(`rules.md`/`cases.md`)和 LLM 判断,筛出真正值得复核的候选,推送到
 飞书,并把反馈数据结构化留存,用于周期性复盘和以后调整规则。
@@ -39,7 +42,7 @@
 | `python main.py` | ✅ | ✅ | ✅ | ✅ | 持续运行模式(默认):启动即扫描一次,之后每 `config.yaml` 里配置的分钟数(默认 60)扫描一次,每天 22:00 输出汇总,直到手动终止(Ctrl+C) |
 | `python main.py --once` | ✅ | ✅ | ✅ | ✅ | 完整扫描一轮(真实抓取 + 真实 LLM + 真实飞书推送)后直接退出,不进入定时循环 |
 | `python main.py --once --platform Mercari --keyword Kendama --max-items 30` | ✅(范围收窄) | ✅ | ✅ | ✅ | 同上,但只扫指定平台/关键词,并覆盖每平台每关键词的抓取上限;不修改 `config.yaml` 本身 |
-| `python main.py --migrate-feedback` | ❌ | ❌ | ❌ | ✅(只写 `feedback_events`,只读 `feedback.db`) | 把旧 `feedback.db` 的最后状态一次性导入 `kendama.db.feedback_events`;幂等,可重复执行不产生重复历史 |
+| `python main.py --migrate-feedback` | ❌ | ❌ | ❌ | ✅(只写 `feedback_events`,只读 `feedback.db`) | 把 `feedback.db` 里既有的历史反馈一次性导入 `kendama.db.feedback_events`;幂等,可重复执行不产生重复历史 |
 | `python main.py --weekly-review` | ❌ | ❌ | ❌ | ❌(只读) | 生成最近 7 天复盘报告到 `reports/weekly_review_YYYYMMDD.md` |
 | `python main.py --weekly-review --days 30` | ❌ | ❌ | ❌ | ❌(只读) | 生成最近 30 天复盘报告,文件名带 `_d30` 后缀(`weekly_review_YYYYMMDD_d30.md`),不会覆盖默认 7 天的报告 |
 | `python main.py --refresh-signals` | ❌ | ❌ | ❌ | ❌(只读) | 生成 `personalized_signals.md`,仅供人工审核,不会被自动注入 LLM prompt |
@@ -57,7 +60,7 @@
 |---|---|---|
 | `kendama.db` | `scan_runs`/`listings`/`price_history`/`evaluations`/`feedback_events` 五张表的完整历史 | ✅(`.gitignore` 里 `*.db`/`kendama.db`) |
 | `daily_pool.json` | 当日候选池,每天 22:00 汇总推送成功后清空 | ✅(`.gitignore` 里 `*.json`) |
-| `feedback.db` | 旧版反馈库(`feedback_server.py` 写入),独立存在,不被新流程修改,只被 `--migrate-feedback` 只读导入 | ✅(`.gitignore` 里 `*.db`) |
+| `feedback.db` | 兼容性反馈库:`feedback_server.py` 为兼容旧反馈链路仍会写入,并同时向 `kendama.db.feedback_events` 追加一条历史事件;`--migrate-feedback` 只用于把既有 `feedback.db` 历史幂等导入主库,不会产生重复事件 | ✅(`.gitignore` 里 `*.db`) |
 | `reports/` | `--weekly-review` 生成的周报目录 | ✅(`.gitignore` 里 `reports/`) |
 | `personalized_signals.md` | `--refresh-signals` 生成的偏好信号,仅供人工审核 | ✅(`.gitignore` 里显式列出) |
 | `rules.md` / `cases.md` | 你的真实业务规则和历史案例 | ✅(`.gitignore` 里显式列出;仓库里的 `rules.example.md`/`cases.example.md` 是脱敏示例,可以提交) |
@@ -85,6 +88,20 @@
 - **反馈**:点击卡片按钮(带 HMAC 签名)→ `feedback_server.py` 写入 `feedback.db`,并追加一份历史事件到 `kendama.db.feedback_events`。
 - **周报/偏好信号**:`--weekly-review`/`--refresh-signals` 只读 `kendama.db`,生成可读的统计报告,不反向影响前面任何一步。
 
+### 4.1 利润五档标签
+
+`ai_filter.py` 的 `assign_tag()` 是标签判定的唯一权威来源(`rules.md` 第七条与代码保持一致,
+两者不一致时以代码为准)。LLM 输出的"是否命中金矿案例"**不影响**最终标签,只作为
+`is_gold_mine` 字段留档。当前判定:
+
+| 标签 | 利润区间(元) |
+|---|---|
+| 强推 | ≥ 150 |
+| 推荐 | ≥ 80 且 < 150 |
+| 观望 | ≥ 10 且 < 80 |
+| 盲盒 | ≥ 0 且 < 10 |
+| 跳过 | < 0(不推送,但仍写入 `evaluations` 留档) |
+
 ---
 
 ## 5. 运行边界与故障处理
@@ -94,9 +111,11 @@
 - **LLM 全部失败 vs 真的没找到候选**:当前代码**无法**从 `scan_runs.status` 区分这两种情况(已知限制,不在 V1 阻塞范围),需要看日志里是否出现 `主 API 失败,切换备用` 或 `第 X 批异常 (尝试 Y/3)` 字样来判断是不是 LLM 调用本身出了问题。
 - **飞书推送失败**:`post_to_feishu()` 只记录错误日志,不会让程序崩溃;候选和评估已经在推送之前写入 SQLite,不会因为推送失败而丢失。
 - **数据库影子写入失败**:`db.py` 的所有公开函数自己吞掉异常、只记日志,绝不向上抛出,保证抓取/LLM/推送主流程不受数据库问题影响。
+- **每日汇总池只在推送成功后清空**:`run_daily_summary()` 只有在飞书推送成功(`push_summary()` 返回 `True`)之后才删除 `daily_pool.json`;推送失败会保留该文件并记一条错误日志,等待下一次 22:00 触发时重试,不会丢数据。
+- **反馈签名缺失或不匹配一律拒绝写入**:`feedback_server.py` 的 `signature_valid()` 是 fail-closed 设计——`FEEDBACK_SIGNING_SECRET` 未配置、请求缺 `sig` 参数、或签名对不上,一律返回 403 且不写库。卡片按钮本身在 `FEEDBACK_URL`/`FEEDBACK_SIGNING_SECRET` 未正确配置(非占位符文本)时也不会被生成,不存在"无签名保护的反馈链接"这种中间状态。
 - **`--status` 和 `--weekly-review` 用于诊断**:排查问题时,先跑 `--status` 看最新一轮 `scan_run` 的状态和 `PRAGMA foreign_key_check`,再用 `--weekly-review` 看多天趋势。
 - **真实密钥只在 `.env`**:所有命令都不会读取 `.env` 内容后打印到日志/报告/终端;`.env` 已在 `.gitignore` 中,不应该被提交。
-- **腾讯云 vs 本地**:腾讯云轻量服务器只负责无人值守持续运行(`python main.py` 持续模式,`nohup` 后台执行);本地负责开发、调试,以及 `--status`/`--weekly-review`/`--refresh-signals` 这类不产生真实抓取/LLM/飞书副作用的诊断命令。
+- **生产部署 vs 本地**:生产环境只负责无人值守持续运行(`python main.py` 持续模式),推荐用 systemd 托管扫描服务(`main.py`)和反馈服务(`feedback_server.py`)两个独立 unit,崩溃自动重启、开机自启,日志用 `journalctl -u <unit> -f` 查看;本地负责开发、调试,以及 `--status`/`--weekly-review`/`--refresh-signals` 这类不产生真实抓取/LLM/飞书副作用的诊断命令。通用部署流程(本地开发 → `git commit`/`push` → 服务器 `git pull` → 安装依赖 → systemd 管理两个服务)见根目录 [`README.md`](README.md) 的"部署到云服务器"章节。
 
 ---
 
