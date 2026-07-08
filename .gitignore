@@ -6,6 +6,8 @@ __pycache__/
 *.json
 scraper_health.json
 *.db
+*.db-wal
+*.db-shm
 kendama.db
 rules.md
 cases.md
