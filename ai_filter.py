@@ -34,6 +34,12 @@ logger = logging.getLogger(__name__)
 class LLMEvaluationError(RuntimeError):
     """Raised when a batch cannot be evaluated after retries."""
 
+
+LAST_EVALUATION_STATS = {
+    "llm_output_count": 0,
+    "validation_skipped_count": 0,
+}
+
 # ----------------------------------------
 # 配置
 # ----------------------------------------
@@ -237,6 +243,8 @@ def filter_single_batch(items, batch_num, total_batches):
         try:
             raw = call_ai(messages)
             candidates = _extract_json_array(raw)
+            if not isinstance(candidates, list):
+                raise ValueError("LLM 响应 JSON 不是数组")
             logger.info(f"第 {batch_num} 批 LLM 返回 {len(candidates)} 条")
             return candidates
         except Exception as e:
@@ -252,6 +260,105 @@ def is_valid_url(url):
     """商品链接是否可用于推送。图片链接缺失不受此约束,单独处理。
     公开函数(main.py 在写 SQLite 影子数据前也复用同一套判定标准)。"""
     return isinstance(url, str) and url.strip().lower().startswith(("http://", "https://"))
+
+
+def _parse_price_jpy(price_text):
+    """从爬虫输入价格文本里提取日元价格。LLM 返回价格不参与计算。"""
+    if price_text is None:
+        return None
+    digits = re.sub(r"[^\d]", "", str(price_text))
+    return int(digits) if digits else None
+
+
+def _validation_skip(reason, item, batch_num=None):
+    title = ""
+    url = ""
+    if isinstance(item, dict):
+        title = str(item.get("title", ""))[:40]
+        url = str(item.get("url", ""))[:120]
+    prefix = f"第 {batch_num} 批 " if batch_num is not None else ""
+    logger.warning(f"{prefix}跳过 LLM 输出校验失败项: {reason}; title={title}; url={url}")
+
+
+def _normalize_llm_candidates(raw_candidates, input_items, batch_num=None):
+    """校验 LLM 输出并按 URL 回填爬虫原始字段。
+
+    安全边界:
+    - URL 必须精确来自本批输入;
+    - price_jpy 只从爬虫输入 price 文本解析,忽略 LLM 返回价格;
+    - 必填字段类型不对或为空时跳过该条。
+    """
+    input_by_url = {
+        item.get("url"): item
+        for item in input_items
+        if isinstance(item, dict) and is_valid_url(item.get("url"))
+    }
+    normalized = []
+    skipped = 0
+
+    for raw in raw_candidates:
+        if not isinstance(raw, dict):
+            skipped += 1
+            _validation_skip("输出项不是 JSON object", raw, batch_num=batch_num)
+            continue
+
+        url = raw.get("url")
+        if not is_valid_url(url):
+            skipped += 1
+            _validation_skip("url 缺失或不是 http(s)", raw, batch_num=batch_num)
+            continue
+
+        source = input_by_url.get(url)
+        if source is None:
+            skipped += 1
+            _validation_skip("url 不属于本批输入", raw, batch_num=batch_num)
+            continue
+
+        title = raw.get("title")
+        brand = raw.get("brand")
+        ref_price = raw.get("domestic_ref_price")
+        is_gold_mine = raw.get("is_gold_mine")
+        reason = raw.get("reason")
+
+        if not isinstance(title, str) or not title.strip():
+            skipped += 1
+            _validation_skip("title 缺失或类型错误", raw, batch_num=batch_num)
+            continue
+        if not isinstance(brand, str) or not brand.strip():
+            skipped += 1
+            _validation_skip("brand 缺失或类型错误", raw, batch_num=batch_num)
+            continue
+        if not isinstance(ref_price, (int, float)) or isinstance(ref_price, bool) or ref_price < 0:
+            skipped += 1
+            _validation_skip("domestic_ref_price 缺失或类型错误", raw, batch_num=batch_num)
+            continue
+        if not isinstance(is_gold_mine, bool):
+            skipped += 1
+            _validation_skip("is_gold_mine 缺失或不是 bool", raw, batch_num=batch_num)
+            continue
+        if not isinstance(reason, str) or not reason.strip():
+            skipped += 1
+            _validation_skip("reason 缺失或类型错误", raw, batch_num=batch_num)
+            continue
+
+        source_price = _parse_price_jpy(source.get("price"))
+        if source_price is None:
+            skipped += 1
+            _validation_skip("爬虫输入 price 无法解析", source, batch_num=batch_num)
+            continue
+
+        normalized.append({
+            "title": source.get("title", ""),
+            "brand": brand.strip(),
+            "price_jpy": source_price,
+            "domestic_ref_price": ref_price,
+            "is_gold_mine": is_gold_mine,
+            "url": url,
+            "img_url": source.get("img_url", ""),
+            "reason": reason.strip(),
+        })
+
+    return normalized, skipped
 
 
 def _enrich_with_profit(candidates):
@@ -310,6 +417,12 @@ def evaluate_with_ai(items, batch_size=15):
     all_evaluated_items 是全部完成成本/利润计算的候选,包含 top_items 的来源集合
     (利润 >= 0)以及利润 < 0 被标记为"跳过"的商品,供 main.py 写入 SQLite evaluations 留档
     (ai_filter.py 本身不导入 sqlite3、不碰任何数据库,也不因为这份留档改变推送内容)。"""
+    LAST_EVALUATION_STATS.clear()
+    LAST_EVALUATION_STATS.update({
+        "llm_output_count": 0,
+        "validation_skipped_count": 0,
+    })
+
     if not items:
         return [], []
 
@@ -327,11 +440,21 @@ def evaluate_with_ai(items, batch_size=15):
     all_candidates = []
 
     for i, batch in enumerate(batches, 1):
-        all_candidates.extend(filter_single_batch(batch, i, len(batches)))
+        raw_candidates = filter_single_batch(batch, i, len(batches))
+        LAST_EVALUATION_STATS["llm_output_count"] += len(raw_candidates)
+        normalized, skipped = _normalize_llm_candidates(raw_candidates, batch, batch_num=i)
+        LAST_EVALUATION_STATS["validation_skipped_count"] += skipped
+        all_candidates.extend(normalized)
         if i < len(batches):
             time.sleep(2)
 
     if not all_candidates:
+        if LAST_EVALUATION_STATS["validation_skipped_count"]:
+            logger.warning(
+                "LLM 输出校验后无可评估候选: "
+                f"LLM 输出 {LAST_EVALUATION_STATS['llm_output_count']} 条, "
+                f"校验跳过 {LAST_EVALUATION_STATS['validation_skipped_count']} 条"
+            )
         return [], []
 
     # 1. Python 算利润、判标签;pushable 只含利润 >= 0 的(推送口径),

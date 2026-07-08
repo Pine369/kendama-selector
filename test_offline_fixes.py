@@ -1014,6 +1014,79 @@ class TestEvaluateWithAiCategoryTransplant(unittest.TestCase):
         self.assertEqual(top_items, enriched)
 
 
+class TestEvaluateWithAiOutputValidation(unittest.TestCase):
+    """LLM 输出必须被校验,且商品身份/原始价格以爬虫输入为准。"""
+
+    def test_url_must_come_from_input_and_price_uses_scraper_input(self):
+        input_items = [{
+            "title": "sulab FC漆 新品",
+            "price": "¥4,000",
+            "url": "https://a.example/valid",
+            "img_url": "https://img.example/input.jpg",
+            "category": "[Mercari] けん玉",
+        }]
+        llm_output = json.dumps([
+            {
+                "title": "sulab FC漆 新品", "brand": "sulab", "price_jpy": 999999,
+                "domestic_ref_price": 400, "is_gold_mine": False,
+                "url": "https://a.example/valid", "img_url": "https://img.example/llm.jpg",
+                "reason": "合法",
+            },
+            {
+                "title": "伪造商品", "brand": "sulab", "price_jpy": 100,
+                "domestic_ref_price": 9999, "is_gold_mine": False,
+                "url": "https://evil.example/not-in-input", "img_url": "https://img.example/evil.jpg",
+                "reason": "伪造 URL",
+            },
+        ], ensure_ascii=False)
+
+        with mock.patch.object(ai_filter, "call_ai", return_value=llm_output), \
+             mock.patch.object(ai_filter, "_append_to_daily_pool") as mocked_pool:
+            top_items, all_evaluated = ai_filter.evaluate_with_ai(input_items)
+
+        self.assertEqual(len(all_evaluated), 1)
+        self.assertEqual(len(top_items), 1)
+        self.assertEqual(all_evaluated[0]["url"], "https://a.example/valid")
+        self.assertEqual(all_evaluated[0]["price_jpy"], 4000)  # 忽略 LLM 返回的 999999
+        self.assertEqual(all_evaluated[0]["title"], "sulab FC漆 新品")
+        self.assertEqual(all_evaluated[0]["img_url"], "https://wsrv.nl/?url=https%3A%2F%2Fimg.example%2Finput.jpg&w=300&h=300&fit=cover")
+        self.assertEqual(ai_filter.LAST_EVALUATION_STATS["validation_skipped_count"], 1)
+        mocked_pool.assert_called_once()
+        self.assertEqual([item["url"] for item in mocked_pool.call_args[0][0]], ["https://a.example/valid"])
+
+    def test_invalid_schema_is_skipped_and_never_written_to_pool(self):
+        input_items = [{
+            "title": "sulab FC漆 新品",
+            "price": "¥4,000",
+            "url": "https://a.example/valid",
+            "img_url": "https://img.example/input.jpg",
+            "category": "[Mercari] けん玉",
+        }]
+        llm_output = json.dumps([
+            {
+                "title": "sulab FC漆 新品", "brand": "sulab",
+                "domestic_ref_price": "400", "is_gold_mine": False,
+                "url": "https://a.example/valid", "img_url": "https://img.example/x.jpg",
+                "reason": "参考价是字符串",
+            },
+            {
+                "title": "sulab FC漆 新品", "brand": "sulab",
+                "domestic_ref_price": 400, "is_gold_mine": "false",
+                "url": "https://a.example/valid", "img_url": "https://img.example/x.jpg",
+                "reason": "bool 类型错误",
+            },
+        ], ensure_ascii=False)
+
+        with mock.patch.object(ai_filter, "call_ai", return_value=llm_output), \
+             mock.patch.object(ai_filter, "_append_to_daily_pool") as mocked_pool:
+            top_items, all_evaluated = ai_filter.evaluate_with_ai(input_items)
+
+        self.assertEqual(top_items, [])
+        self.assertEqual(all_evaluated, [])
+        self.assertEqual(ai_filter.LAST_EVALUATION_STATS["validation_skipped_count"], 2)
+        mocked_pool.assert_not_called()
+
+
 def _parse_args_silently(argv):
     """调用 main.parse_args(),把 argparse 出错时打印的 usage/error 文本吞掉,保持测试输出干净。"""
     with contextlib.redirect_stderr(io.StringIO()):
@@ -1315,6 +1388,51 @@ class TestScanRunCountsIncludeSkippedEvaluations(unittest.TestCase):
 
         self.assertEqual(run, (2, 1))
         self.assertEqual(evals, [("跳过", 0, -30), ("强推", 1, 170)])
+
+    def test_invalid_llm_output_marks_scan_run_partial_failure_without_pushing_invalid_item(self):
+        valid_url = "https://jp.mercari.com/item/valid1"
+        raw_items = [{
+            "title": "sulab FC漆", "price": "¥4,000", "url": valid_url,
+            "img_url": "https://img.example/valid.jpg", "category": "[Mercari] けん玉",
+        }]
+        llm_output = json.dumps([
+            {
+                "title": "sulab FC漆", "brand": "sulab", "price_jpy": 1,
+                "domestic_ref_price": 400, "is_gold_mine": False,
+                "url": valid_url, "img_url": "https://img.example/valid.jpg", "reason": "合法",
+            },
+            {
+                "title": "伪造商品", "brand": "sulab", "price_jpy": 1,
+                "domestic_ref_price": 9999, "is_gold_mine": False,
+                "url": "https://evil.example/not-input", "img_url": "https://img.example/evil.jpg",
+                "reason": "伪造",
+            },
+        ], ensure_ascii=False)
+
+        with mock.patch.object(main, "scrape_multiple_keywords", return_value=raw_items), \
+             mock.patch.object(ai_filter, "call_ai", return_value=llm_output), \
+             mock.patch.object(main, "push_items", return_value=(1, 0)) as mocked_push, \
+             mock.patch.object(main, "check_scraper_health"):
+            main.run_scan()
+
+        conn = sqlite3.connect(self.db_path)
+        try:
+            run = conn.execute(
+                "SELECT status, raw_item_count, brand_matched_count, llm_input_count, "
+                "evaluated_count, candidate_count FROM scan_runs ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+            eval_urls = [
+                row[0] for row in conn.execute(
+                    "SELECT l.url FROM evaluations e JOIN listings l ON l.id=e.listing_id"
+                ).fetchall()
+            ]
+        finally:
+            conn.close()
+
+        self.assertEqual(run, ("partial_failure", 1, 1, 1, 1, 1))
+        self.assertEqual(eval_urls, [valid_url])
+        pushed_urls = [item["url"] for item in mocked_push.call_args[0][0]]
+        self.assertEqual(pushed_urls, [valid_url])
 
 
 class TestCleanLlmCandidates(unittest.TestCase):

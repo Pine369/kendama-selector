@@ -33,6 +33,7 @@ from dotenv import load_dotenv
 from scraper import scrape_multiple_keywords, PLATFORMS
 from ai_filter import (
     LLMEvaluationError,
+    LAST_EVALUATION_STATS,
     evaluate_with_ai,
     generate_daily_summary,
     JPY_TO_CNY,
@@ -682,22 +683,26 @@ def run_scan(keywords=None, platforms=None, max_items_per_platform=None):
         top_items, all_evaluated_items = evaluate_with_ai(candidates)
         evaluated_count = len(all_evaluated_items)
         candidate_count = len(top_items)
+        validation_skipped_count = LAST_EVALUATION_STATS.get("validation_skipped_count", 0)
+        scan_status = "partial_failure" if validation_skipped_count else "ok"
+        if validation_skipped_count:
+            logger.warning(f"本轮 LLM 输出校验跳过 {validation_skipped_count} 条,scan_run 标记为 partial_failure")
 
         _record_evaluations(all_evaluated_items, top_items, url_to_listing_id, scan_run_id)
 
         if not top_items:
             logger.info("本轮无符合条件的商品")
             db.finish_scan_run(
-                scan_run_id, datetime.now().isoformat(timespec="seconds"), "ok",
+                scan_run_id, datetime.now().isoformat(timespec="seconds"), scan_status,
                 raw_item_count=total, brand_matched_count=brand_matched_count,
                 llm_input_count=llm_input_count, evaluated_count=evaluated_count,
                 candidate_count=0,
             )
             write_run_state(
-                "scan_finish", status="ok", scan_run_id=scan_run_id,
+                "scan_finish", status=scan_status, scan_run_id=scan_run_id,
                 raw_item_count=total, brand_matched_count=brand_matched_count,
                 llm_input_count=llm_input_count, evaluated_count=evaluated_count,
-                candidate_count=0,
+                candidate_count=0, validation_skipped_count=validation_skipped_count,
             )
             return
 
@@ -709,17 +714,17 @@ def run_scan(keywords=None, platforms=None, max_items_per_platform=None):
             push_success, push_failed = None, None
 
         db.finish_scan_run(
-            scan_run_id, datetime.now().isoformat(timespec="seconds"), "ok",
+            scan_run_id, datetime.now().isoformat(timespec="seconds"), scan_status,
             raw_item_count=total, brand_matched_count=brand_matched_count,
             llm_input_count=llm_input_count, evaluated_count=evaluated_count,
             candidate_count=candidate_count,
         )
         write_run_state(
-            "scan_finish", status="ok", scan_run_id=scan_run_id,
+            "scan_finish", status=scan_status, scan_run_id=scan_run_id,
             raw_item_count=total, brand_matched_count=brand_matched_count,
             llm_input_count=llm_input_count, evaluated_count=evaluated_count,
             candidate_count=candidate_count, push_success=push_success,
-            push_failed=push_failed,
+            push_failed=push_failed, validation_skipped_count=validation_skipped_count,
         )
     except LLMEvaluationError as e:
         logger.error(f"LLM 评估失败,本轮标记为 llm_failed: {e}", exc_info=True)
