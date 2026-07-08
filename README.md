@@ -295,9 +295,12 @@ python main.py --refresh-signals
 
 # 只读状态摘要:不扫描、不调用 LLM、不推送飞书、不创建数据库
 python main.py --status
+
+# 启动前配置检查:不扫描、不调用 LLM、不推送飞书
+python main.py --check-config
 ```
 
-`--migrate-feedback`/`--weekly-review`/`--refresh-signals`/`--status` 四个维护命令互斥
+`--migrate-feedback`/`--weekly-review`/`--refresh-signals`/`--status`/`--check-config` 五个维护命令互斥
 (一次只能用一个),且都不能与 `--once`/`--platform`/`--keyword`/`--max-items` 同时使用。
 
 > 每个命令的完整副作用边界(是否抓取/调用 LLM/推送飞书/写数据库)、

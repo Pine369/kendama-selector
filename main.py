@@ -13,20 +13,32 @@ import re
 import json
 import time
 import hmac
+import sys
 import sqlite3
 import hashlib
 import logging
 import argparse
+import tempfile
 from datetime import datetime
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 import requests
-import schedule
+try:
+    import schedule
+except ModuleNotFoundError:
+    schedule = None
 import yaml
 from dotenv import load_dotenv
 
 from scraper import scrape_multiple_keywords, PLATFORMS
-from ai_filter import evaluate_with_ai, generate_daily_summary, JPY_TO_CNY, DAILY_POOL_FILE, is_valid_url
+from ai_filter import (
+    LLMEvaluationError,
+    evaluate_with_ai,
+    generate_daily_summary,
+    JPY_TO_CNY,
+    DAILY_POOL_FILE,
+    is_valid_url,
+)
 import scraper_health
 import reporting
 import db
@@ -58,6 +70,7 @@ FEEDBACK_SIGNING_SECRET = os.getenv("FEEDBACK_SIGNING_SECRET")  # 反馈链接�
 
 SCRAPER_HEALTH_FILE = "scraper_health.json"
 SCRAPER_HEALTH_THRESHOLD = 3
+RUN_STATE_FILE = "run_state.json"
 
 FEEDBACK_DB_FILE = "feedback.db"  # 旧反馈库,只读导入用,--migrate-feedback 之外不碰它
 PRICE_DROP_MIN_JPY = 500
@@ -107,6 +120,29 @@ def is_configured(value):
     return not any(p in value.lower() for p in placeholders)
 
 
+def write_run_state(event, status="running", **extra):
+    """把当前运行状态原子写入 run_state.json,用于判断调度器是否还活着。"""
+    payload = {
+        "event": event,
+        "status": status,
+        "updated_at": datetime.now().isoformat(timespec="seconds"),
+        **extra,
+    }
+    try:
+        target_dir = os.path.dirname(os.path.abspath(RUN_STATE_FILE)) or "."
+        fd, tmp_path = tempfile.mkstemp(prefix=".run_state_", suffix=".tmp", dir=target_dir)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+            os.replace(tmp_path, RUN_STATE_FILE)
+        except Exception:
+            if os.path.exists(tmp_path):
+                os.remove(tmp_path)
+            raise
+    except Exception as e:
+        logger.error(f"写入运行状态失败: {e}")
+
+
 def diagnose_feedback_config():
     """启动时打印反馈端点配置状态,辅助排查"按钮看不见"的问题。"""
     if not is_configured(FEEDBACK_URL):
@@ -115,6 +151,8 @@ def diagnose_feedback_config():
     if not is_configured(FEEDBACK_SIGNING_SECRET):
         logger.warning("FEEDBACK_SIGNING_SECRET 未配置 → 反馈功能未启用,卡片将不带反馈按钮")
         return
+    if FEEDBACK_URL.lower().startswith("http://"):
+        logger.warning("FEEDBACK_URL 使用 http:// → 飞书会隐藏反馈按钮,请改成 HTTPS")
     logger.info(f"反馈端点已配置: {FEEDBACK_URL[:40]}...")
 
 
@@ -261,11 +299,18 @@ def post_to_feishu(payload, label=""):
 
 def push_items(items):
     """逐条推送候选商品。0.5s 间隔避开飞书 webhook 频率限制。"""
+    success = 0
+    failed = 0
     for item in items:
         ok = post_to_feishu(build_item_card(item), label=item.get("brand", ""))
         if ok:
+            success += 1
             logger.info(f"已推送: {item.get('brand', '')} · ¥{item.get('estimated_profit', '?')}")
+        else:
+            failed += 1
         time.sleep(0.5)
+    logger.info(f"本轮推送完成: 成功 {success} 条,失败 {failed} 条")
+    return success, failed
 
 
 def push_summary(items):
@@ -544,16 +589,27 @@ def run_scan(keywords=None, platforms=None, max_items_per_platform=None):
     max_items = max_items_per_platform if max_items_per_platform is not None else MAX_ITEMS
 
     logger.info("开始新一轮扫描")
+    write_run_state("scan_start", status="running")
     if scope_overridden:
         logger.info(
             f"本轮范围覆盖: 平台={platforms or list(PLATFORMS)}, "
             f"关键词={keywords}, 每平台每关键词上限={max_items}"
         )
     scan_run_id = db.create_scan_run(datetime.now().isoformat(timespec="seconds"))
+    total = 0
+    brand_matched_count = 0
+    llm_input_count = 0
+    evaluated_count = 0
+    candidate_count = 0
 
     try:
         raw_items = scrape_multiple_keywords(
             keywords, max_items_per_platform=max_items, platforms=platforms
+        )
+        platform_counts = _count_items_by_platform(raw_items)
+        logger.info(
+            "平台抓取数量: "
+            + ", ".join(f"{platform}={count}" for platform, count in platform_counts.items())
         )
 
         check_scraper_health(raw_items)
@@ -562,6 +618,11 @@ def run_scan(keywords=None, platforms=None, max_items_per_platform=None):
             logger.warning("爬虫未返回任何数据")
             db.finish_scan_run(
                 scan_run_id, datetime.now().isoformat(timespec="seconds"), "ok",
+                raw_item_count=0, brand_matched_count=0,
+                llm_input_count=0, evaluated_count=0, candidate_count=0,
+            )
+            write_run_state(
+                "scan_finish", status="ok", scan_run_id=scan_run_id,
                 raw_item_count=0, brand_matched_count=0,
                 llm_input_count=0, evaluated_count=0, candidate_count=0,
             )
@@ -575,6 +636,11 @@ def run_scan(keywords=None, platforms=None, max_items_per_platform=None):
         if not candidates:
             db.finish_scan_run(
                 scan_run_id, datetime.now().isoformat(timespec="seconds"), "ok",
+                raw_item_count=total, brand_matched_count=0,
+                llm_input_count=0, evaluated_count=0, candidate_count=0,
+            )
+            write_run_state(
+                "scan_finish", status="ok", scan_run_id=scan_run_id,
                 raw_item_count=total, brand_matched_count=0,
                 llm_input_count=0, evaluated_count=0, candidate_count=0,
             )
@@ -606,9 +672,16 @@ def run_scan(keywords=None, platforms=None, max_items_per_platform=None):
                 raw_item_count=total, brand_matched_count=brand_matched_count,
                 llm_input_count=0, evaluated_count=0, candidate_count=0,
             )
+            write_run_state(
+                "scan_finish", status="ok", scan_run_id=scan_run_id,
+                raw_item_count=total, brand_matched_count=brand_matched_count,
+                llm_input_count=0, evaluated_count=0, candidate_count=0,
+            )
             return
 
         top_items, all_evaluated_items = evaluate_with_ai(candidates)
+        evaluated_count = len(all_evaluated_items)
+        candidate_count = len(top_items)
 
         _record_evaluations(all_evaluated_items, top_items, url_to_listing_id, scan_run_id)
 
@@ -617,22 +690,59 @@ def run_scan(keywords=None, platforms=None, max_items_per_platform=None):
             db.finish_scan_run(
                 scan_run_id, datetime.now().isoformat(timespec="seconds"), "ok",
                 raw_item_count=total, brand_matched_count=brand_matched_count,
-                llm_input_count=llm_input_count, evaluated_count=len(all_evaluated_items),
+                llm_input_count=llm_input_count, evaluated_count=evaluated_count,
+                candidate_count=0,
+            )
+            write_run_state(
+                "scan_finish", status="ok", scan_run_id=scan_run_id,
+                raw_item_count=total, brand_matched_count=brand_matched_count,
+                llm_input_count=llm_input_count, evaluated_count=evaluated_count,
                 candidate_count=0,
             )
             return
 
         logger.info(f"筛出 {len(top_items)} 条高潜商品,开始推送")
-        push_items(top_items)
+        push_result = push_items(top_items)
+        if isinstance(push_result, tuple) and len(push_result) == 2:
+            push_success, push_failed = push_result
+        else:
+            push_success, push_failed = None, None
 
         db.finish_scan_run(
             scan_run_id, datetime.now().isoformat(timespec="seconds"), "ok",
             raw_item_count=total, brand_matched_count=brand_matched_count,
-            llm_input_count=llm_input_count, evaluated_count=len(all_evaluated_items),
-            candidate_count=len(top_items),
+            llm_input_count=llm_input_count, evaluated_count=evaluated_count,
+            candidate_count=candidate_count,
+        )
+        write_run_state(
+            "scan_finish", status="ok", scan_run_id=scan_run_id,
+            raw_item_count=total, brand_matched_count=brand_matched_count,
+            llm_input_count=llm_input_count, evaluated_count=evaluated_count,
+            candidate_count=candidate_count, push_success=push_success,
+            push_failed=push_failed,
+        )
+    except LLMEvaluationError as e:
+        logger.error(f"LLM 评估失败,本轮标记为 llm_failed: {e}", exc_info=True)
+        db.finish_scan_run(
+            scan_run_id, datetime.now().isoformat(timespec="seconds"), "llm_failed",
+            raw_item_count=total, brand_matched_count=brand_matched_count,
+            llm_input_count=llm_input_count, evaluated_count=evaluated_count,
+            candidate_count=candidate_count,
+        )
+        write_run_state(
+            "scan_finish", status="llm_failed", scan_run_id=scan_run_id,
+            raw_item_count=total, brand_matched_count=brand_matched_count,
+            llm_input_count=llm_input_count, evaluated_count=evaluated_count,
+            candidate_count=candidate_count, error=str(e),
         )
     except Exception:
         db.finish_scan_run(scan_run_id, datetime.now().isoformat(timespec="seconds"), "error")
+        write_run_state(
+            "scan_finish", status="error", scan_run_id=scan_run_id,
+            raw_item_count=total, brand_matched_count=brand_matched_count,
+            llm_input_count=llm_input_count, evaluated_count=evaluated_count,
+            candidate_count=candidate_count,
+        )
         raise
 
 
@@ -658,6 +768,7 @@ def safe_run(task_func, task_name):
     try:
         task_func()
     except Exception as e:
+        write_run_state("task_exception", status="error", task=task_name, error=str(e))
         logger.error(f"{task_name} 执行异常: {e}", exc_info=True)
 
 
@@ -815,6 +926,19 @@ def print_status():
         lines.append(f"- personalized_signals.md 是否存在: 检查失败({e})")
 
     try:
+        if os.path.exists(RUN_STATE_FILE):
+            with open(RUN_STATE_FILE, "r", encoding="utf-8") as f:
+                state = json.load(f)
+            lines.append(
+                f"- run_state: event={state.get('event')}, status={state.get('status')}, "
+                f"updated_at={state.get('updated_at')}"
+            )
+        else:
+            lines.append("- run_state: 不存在")
+    except Exception as e:
+        lines.append(f"- run_state: 读取失败({e})")
+
+    try:
         if os.path.exists(DAILY_POOL_FILE):
             with open(DAILY_POOL_FILE, "r", encoding="utf-8") as f:
                 pool = json.load(f)
@@ -828,6 +952,87 @@ def print_status():
         lines.append(f"- daily_pool.json 是否存在: 是,但读取失败({e})")
 
     print("\n".join(lines))
+
+
+def check_config():
+    """启动前配置检查。不抓取、不调用 LLM、不推送飞书。"""
+    lines = ["# Kendama Sourcing Skill - 配置检查", ""]
+    problems = 0
+
+    def add(level, message):
+        nonlocal problems
+        if level == "ERROR":
+            problems += 1
+        lines.append(f"- [{level}] {message}")
+
+    add("OK", f"当前 Python: {sys.executable}")
+    if ".venv" not in os.path.normcase(sys.executable):
+        add("WARN", "当前不是项目 .venv 解释器。建议使用 `.\\.venv\\Scripts\\python.exe main.py`")
+
+    if schedule is None:
+        add("ERROR", "缺少 schedule 依赖,持续调度模式无法启动。请使用项目 .venv 或安装 requirements.txt")
+    else:
+        add("OK", "schedule 依赖可导入")
+
+    for key, value in [
+        ("DEEPSEEK_API_KEY", os.getenv("DEEPSEEK_API_KEY")),
+        ("SILICONFLOW_API_KEY", os.getenv("SILICONFLOW_API_KEY")),
+        ("FEISHU_WEBHOOK", FEISHU_WEBHOOK),
+    ]:
+        add("OK" if is_configured(value) else "ERROR", f"{key} {'已配置' if is_configured(value) else '未配置或仍是占位符'}")
+
+    if is_configured(FEEDBACK_URL):
+        scheme = urlparse(FEEDBACK_URL).scheme.lower()
+        if scheme == "https":
+            add("OK", "FEEDBACK_URL 已配置 HTTPS")
+        elif scheme == "http":
+            add("WARN", "FEEDBACK_URL 是 http://,飞书会隐藏反馈按钮;请改成 HTTPS")
+        else:
+            add("ERROR", f"FEEDBACK_URL 协议异常: {scheme or '(空)'}")
+    else:
+        add("WARN", "FEEDBACK_URL 未配置,卡片不会带反馈按钮")
+
+    add(
+        "OK" if is_configured(FEEDBACK_SIGNING_SECRET) else "WARN",
+        "FEEDBACK_SIGNING_SECRET 已配置" if is_configured(FEEDBACK_SIGNING_SECRET)
+        else "FEEDBACK_SIGNING_SECRET 未配置或仍是占位符,反馈按钮不会启用",
+    )
+
+    try:
+        if os.path.exists(db.DB_FILE):
+            conn = db._connect_db(db.DB_FILE)
+            try:
+                conn.execute("SELECT 1").fetchone()
+            finally:
+                conn.close()
+            add("OK", f"数据库可连接: {db.DB_FILE}")
+        else:
+            add("WARN", f"数据库不存在: {db.DB_FILE}")
+    except Exception as e:
+        add("ERROR", f"数据库连接失败: {e}")
+
+    try:
+        if os.path.exists(DAILY_POOL_FILE):
+            with open(DAILY_POOL_FILE, "r", encoding="utf-8") as f:
+                pool = json.load(f)
+            urls = [item.get("url") for item in pool if isinstance(item, dict) and item.get("url")]
+            add("OK", f"daily_pool.json 可读取: 候选 {len(pool)} 条,不同 URL {len(set(urls))} 个")
+        else:
+            add("OK", "daily_pool.json 不存在")
+    except Exception as e:
+        add("ERROR", f"daily_pool.json 读取失败: {e}")
+
+    try:
+        interval = int(SCAN_INTERVAL)
+        add("OK" if interval > 0 else "ERROR", f"扫描间隔: {SCAN_INTERVAL} 分钟")
+    except Exception:
+        add("ERROR", f"扫描间隔不是整数: {SCAN_INTERVAL}")
+    add("OK" if SUMMARY_TIME else "ERROR", f"每日汇总时间: {SUMMARY_TIME}")
+
+    lines.append("")
+    lines.append(f"结论: {'存在 ERROR,请先修复' if problems else '未发现阻断启动的问题'}")
+    print("\n".join(lines))
+    return problems == 0
 
 
 # ----------------------------------------
@@ -882,6 +1087,11 @@ def parse_args(argv=None):
         help="输出只读状态摘要(kendama.db 是否存在、最新 scan_run、各表总数等)后退出;"
              "不扫描、不调用 LLM、不推送飞书、不创建数据库",
     )
+    parser.add_argument(
+        "--check-config", action="store_true",
+        help="检查当前 Python、关键环境变量、反馈 URL、数据库和 daily_pool.json 后退出;"
+             "不扫描、不调用 LLM、不推送飞书",
+    )
 
     args = parser.parse_args(argv)
 
@@ -896,6 +1106,7 @@ def parse_args(argv=None):
         "--weekly-review": args.weekly_review,
         "--refresh-signals": args.refresh_signals,
         "--status": args.status,
+        "--check-config": args.check_config,
     }
     active_maintenance = [name for name, used in maintenance_flags.items() if used]
     if len(active_maintenance) > 1:
@@ -933,6 +1144,10 @@ def main(argv=None):
         print_status()
         return
 
+    if args.check_config:
+        check_config()
+        return
+
     if args.weekly_review:
         if not db.init_db():
             logger.error("kendama.db 初始化失败,无法生成周报")
@@ -958,6 +1173,7 @@ def main(argv=None):
         logger.info(f"--migrate-feedback 完成: 新增 {imported} 条,跳过(已存在) {skipped} 条")
         return
 
+    write_run_state("process_start", status="starting", argv=argv or sys.argv[1:])
     diagnose_feedback_config()
     if not db.init_db():
         logger.warning("kendama.db 初始化失败,本次运行将跳过 SQLite 影子写入")
@@ -974,22 +1190,34 @@ def main(argv=None):
         )
         return
 
+    if schedule is None:
+        logger.error(
+            "缺少 schedule 依赖,无法进入持续调度模式。"
+            "请使用 `.\\.venv\\Scripts\\python.exe main.py` 或安装 requirements.txt。"
+        )
+        write_run_state("startup_failed", status="error", error="missing schedule dependency")
+        return
+
     safe_run(run_scan, "扫描任务")
 
     schedule.every(SCAN_INTERVAL).minutes.do(lambda: safe_run(run_scan, "扫描任务"))
     schedule.every().day.at(SUMMARY_TIME).do(lambda: safe_run(run_daily_summary, "每日汇总"))
 
     logger.info(f"进入定时模式: 每 {SCAN_INTERVAL} 分钟扫描一次,{SUMMARY_TIME} 输出汇总")
+    write_run_state("scheduler_start", status="running", scan_interval_minutes=SCAN_INTERVAL)
 
     while True:
         try:
+            write_run_state("scheduler_heartbeat", status="running")
             schedule.run_pending()
             time.sleep(60)
         except KeyboardInterrupt:
             logger.info("收到中断信号,程序退出")
+            write_run_state("process_stop", status="stopped", reason="KeyboardInterrupt")
             break
         except Exception as e:
             logger.error(f"调度异常: {e}", exc_info=True)
+            write_run_state("scheduler_exception", status="error", error=str(e))
             time.sleep(60)
 
 

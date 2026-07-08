@@ -30,6 +30,10 @@ from dotenv import load_dotenv
 load_dotenv()
 logger = logging.getLogger(__name__)
 
+
+class LLMEvaluationError(RuntimeError):
+    """Raised when a batch cannot be evaluated after retries."""
+
 # ----------------------------------------
 # 配置
 # ----------------------------------------
@@ -228,6 +232,7 @@ def filter_single_batch(items, batch_num, total_batches):
         {"role": "user", "content": user_prompt},
     ]
 
+    last_error = None
     for attempt in range(3):
         try:
             raw = call_ai(messages)
@@ -235,9 +240,12 @@ def filter_single_batch(items, batch_num, total_batches):
             logger.info(f"第 {batch_num} 批 LLM 返回 {len(candidates)} 条")
             return candidates
         except Exception as e:
+            last_error = e
             logger.warning(f"第 {batch_num} 批异常 (尝试 {attempt + 1}/3): {e}")
             time.sleep((attempt + 1) * 3)
-    return []
+    raise LLMEvaluationError(
+        f"第 {batch_num}/{total_batches} 批 LLM 连续失败,已放弃本轮评估: {last_error}"
+    )
 
 
 def is_valid_url(url):
@@ -364,13 +372,26 @@ def evaluate_with_ai(items, batch_size=15):
 
 
 def _append_to_daily_pool(candidates):
-    """读取-合并-原子写回,避免写入中途崩溃导致 daily_pool.json 损坏。"""
+    """读取-合并-按 URL 去重-原子写回,避免写入中途崩溃导致 daily_pool.json 损坏。"""
     try:
         pool = []
         if os.path.exists(DAILY_POOL_FILE):
             with open(DAILY_POOL_FILE, "r", encoding="utf-8") as f:
                 pool = json.load(f)
         pool.extend(candidates)
+
+        deduped_by_url = {}
+        no_url_items = []
+        for item in pool:
+            if not isinstance(item, dict):
+                continue
+            url = item.get("url")
+            if url:
+                # 保留最后一次写入的同 URL 候选,与 generate_daily_summary() 既有口径一致。
+                deduped_by_url[url] = item
+            else:
+                no_url_items.append(item)
+        pool = no_url_items + list(deduped_by_url.values())
 
         pool_dir = os.path.dirname(os.path.abspath(DAILY_POOL_FILE)) or "."
         fd, tmp_path = tempfile.mkstemp(prefix=".daily_pool_", suffix=".tmp", dir=pool_dir)

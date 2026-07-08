@@ -47,9 +47,10 @@
 | `python main.py --weekly-review --days 30` | ❌ | ❌ | ❌ | ❌(只读) | 生成最近 30 天复盘报告,文件名带 `_d30` 后缀(`weekly_review_YYYYMMDD_d30.md`),不会覆盖默认 7 天的报告 |
 | `python main.py --refresh-signals` | ❌ | ❌ | ❌ | ❌(只读) | 生成 `personalized_signals.md`,仅供人工审核,不会被自动注入 LLM prompt |
 | `python main.py --status` | ❌ | ❌ | ❌ | ❌(甚至不会创建 `kendama.db`) | 输出只读状态摘要;`kendama.db` 不存在时明确提示"尚未初始化"并正常退出 |
+| `python main.py --check-config` | ❌ | ❌ | ❌ | ❌ | 检查当前 Python、关键环境变量、反馈 URL、数据库和 `daily_pool.json`;不产生真实业务副作用 |
 
 `--platform`/`--keyword`/`--max-items` 只能配合 `--once` 使用;`--migrate-feedback`/`--weekly-review`/
-`--refresh-signals`/`--status` 这四个维护命令互斥(一次只能用一个),且都不能与 `--once`/范围参数同时使用。
+`--refresh-signals`/`--status`/`--check-config` 这五个维护命令互斥(一次只能用一个),且都不能与 `--once`/范围参数同时使用。
 不带任何参数运行的持续模式行为不受这些新命令影响。
 
 ---

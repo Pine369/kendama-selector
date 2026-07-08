@@ -189,6 +189,23 @@ class TestAtomicDailyPoolWrite(unittest.TestCase):
         leftovers = [f for f in os.listdir(".") if f.startswith(".daily_pool_")]
         self.assertEqual(leftovers, [])
 
+    def test_append_dedupes_by_url_and_keeps_latest(self):
+        ai_filter._append_to_daily_pool([
+            {"url": "https://a.example/1", "price_jpy": 1000, "estimated_profit": 10},
+            {"url": "https://a.example/2", "price_jpy": 2000, "estimated_profit": 20},
+        ])
+        ai_filter._append_to_daily_pool([
+            {"url": "https://a.example/1", "price_jpy": 900, "estimated_profit": 30},
+        ])
+
+        with open(ai_filter.DAILY_POOL_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+
+        self.assertEqual(len(data), 2)
+        by_url = {item["url"]: item for item in data}
+        self.assertEqual(by_url["https://a.example/1"]["price_jpy"], 900)
+        self.assertEqual(by_url["https://a.example/1"]["estimated_profit"], 30)
+
 
 class TestAssignTagFiveTiers(unittest.TestCase):
     def test_profit_boundaries(self):
@@ -2491,6 +2508,91 @@ class TestStatusMutualExclusivity(unittest.TestCase):
     def test_status_with_max_items_errors(self):
         with self.assertRaises(SystemExit):
             _parse_args_silently(["--status", "--once", "--max-items", "10"])
+
+
+class TestCheckConfigCommand(unittest.TestCase):
+    """--check-config 是只做启动前诊断的维护命令。"""
+
+    def test_check_config_alone_parses(self):
+        args = main.parse_args(["--check-config"])
+        self.assertTrue(args.check_config)
+
+    def test_check_config_with_once_errors(self):
+        with self.assertRaises(SystemExit):
+            _parse_args_silently(["--check-config", "--once"])
+
+    def test_check_config_does_not_scrape_call_llm_or_push_feishu(self):
+        with mock.patch.object(main, "check_config", return_value=True) as mocked_check, \
+             mock.patch.object(main, "scrape_multiple_keywords") as mocked_scrape, \
+             mock.patch.object(main, "evaluate_with_ai") as mocked_llm, \
+             mock.patch.object(main, "post_to_feishu") as mocked_feishu:
+            main.main(["--check-config"])
+        mocked_check.assert_called_once()
+        mocked_scrape.assert_not_called()
+        mocked_llm.assert_not_called()
+        mocked_feishu.assert_not_called()
+
+
+class TestStabilityHardening(unittest.TestCase):
+    """恢复 7x24 运行相关的最小稳定性补丁。"""
+
+    def setUp(self):
+        self.tmpdir = tempfile.mkdtemp()
+        self._orig_cwd = os.getcwd()
+        os.chdir(self.tmpdir)
+        self.db_path = os.path.join(self.tmpdir, "kendama_test.db")
+        self._db_patch = mock.patch.object(db, "DB_FILE", self.db_path)
+        self._db_patch.start()
+        db.init_db()
+
+    def tearDown(self):
+        self._db_patch.stop()
+        os.chdir(self._orig_cwd)
+        shutil.rmtree(self.tmpdir)
+
+    def test_llm_failure_is_recorded_as_llm_failed_not_empty_candidates(self):
+        item = {
+            "title": "sulab kendama",
+            "price": "¥1,000",
+            "url": "https://a.example/1",
+            "img_url": "",
+            "category": "[Mercari] Kendama",
+        }
+        with mock.patch.object(main, "scrape_multiple_keywords", return_value=[item]), \
+             mock.patch.object(main, "evaluate_with_ai",
+                               side_effect=ai_filter.LLMEvaluationError("boom")):
+            main.run_scan()
+
+        conn = sqlite3.connect(self.db_path)
+        try:
+            row = conn.execute(
+                "SELECT status, raw_item_count, brand_matched_count, llm_input_count, "
+                "evaluated_count, candidate_count FROM scan_runs ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+        finally:
+            conn.close()
+
+        self.assertEqual(row, ("llm_failed", 1, 1, 1, 0, 0))
+        with open(main.RUN_STATE_FILE, encoding="utf-8") as f:
+            state = json.load(f)
+        self.assertEqual(state["status"], "llm_failed")
+
+    def test_scheduler_exception_does_not_exit_until_keyboard_interrupt(self):
+        calls = {"count": 0}
+
+        def fake_run_pending():
+            calls["count"] += 1
+            if calls["count"] == 1:
+                raise RuntimeError("scheduler boom")
+            raise KeyboardInterrupt()
+
+        with mock.patch.object(main, "run_scan", return_value=None), \
+             mock.patch.object(main, "diagnose_feedback_config", return_value=None), \
+             mock.patch.object(main.schedule, "run_pending", side_effect=fake_run_pending), \
+             mock.patch.object(main.time, "sleep", return_value=None):
+            main.main([])
+
+        self.assertEqual(calls["count"], 2)
 
 
 class TestWeeklyReviewFilenameByDays(unittest.TestCase):
