@@ -2,8 +2,11 @@
 反馈接收端
 
 飞书卡片按钮点击后会跳转到这里,把决策(买入/放弃 + 原因)写进 SQLite。
-端口默认 5001,通过 cpolar / 域名 + Nginx 暴露到公网,
-然后把 https://xxx 写进主程序的 .env 里的 FEEDBACK_URL。
+本服务只监听本机 5001 端口,不直接对公网暴露;对外的 HTTPS 入口由 Caddy
+反向代理提供(公网地址例如 https://feedback.pine369.com/feedback,反代到
+127.0.0.1:5001),把这个 HTTPS 地址写进主程序的 .env 里的 FEEDBACK_URL。
+5001 端口本身是否暴露到公网,取决于服务器防火墙/安全组配置,应确保只有
+Caddy 能访问它,不应该被外部直接连接到。
 
 请求必须带有效的 HMAC-SHA256 签名(见 main.py 的 sign_feedback_params),
 签名密钥来自环境变量 FEEDBACK_SIGNING_SECRET,须与主程序一致。

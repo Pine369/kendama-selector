@@ -65,6 +65,8 @@
 | `reports/` | `--weekly-review` 生成的周报目录 | ✅(`.gitignore` 里 `reports/`) |
 | `personalized_signals.md` | `--refresh-signals` 生成的偏好信号,仅供人工审核 | ✅(`.gitignore` 里显式列出) |
 | `rules.md` / `cases.md` | 你的真实业务规则和历史案例 | ✅(`.gitignore` 里显式列出;仓库里的 `rules.example.md`/`cases.example.md` 是脱敏示例,可以提交) |
+| `run_state.json` | 调度器 heartbeat/运行状态文件:记录最近一次事件(`scan_start`/`scan_finish`/`scheduler_heartbeat`/`process_stop` 等)、状态和 `updated_at` 时间戳,用于判断持续运行模式下调度器是否还活着;持续模式下每 60 秒刷新一次 | ✅(`.gitignore` 里 `*.json` 已覆盖)。这是运行时自动生成的文件,**不应提交、不应手动编辑** |
+| `scraper_health.json` | 抓取健康检查的连续 0 计数状态,供 `scraper_health.py` 判断是否需要告警 | ✅(`.gitignore` 里显式列出) |
 | `.env` | 真实密钥(DeepSeek/硅基流动/飞书 webhook/反馈签名密钥等) | ✅ 最高优先级私有文件,任何命令都不会读取后打印或写入日志/报告 |
 
 上述文件都已经在 `.gitignore` 里,正常使用 `git add`/`git commit` 不会误提交它们。
@@ -109,12 +111,13 @@
 
 - **无候选、全负利润不是故障**——这是正常业务结果(市场当下没有好货),`scan_runs.status` 仍然是 `'ok'`,`--weekly-review`/`--status` 能看到 `candidate_count=0` 但这不代表系统出错。
 - **抓取为空**:如果某平台连续 3 轮抓到 0 条,`scraper_health.py` 会触发一次"抓取疑似异常"飞书告警,同一段异常只告警一次直到恢复;日志里的 `爬虫未返回任何数据` 是完全没抓到东西的信号。
-- **LLM 全部失败 vs 真的没找到候选**:当前代码**无法**从 `scan_runs.status` 区分这两种情况(已知限制,不在 V1 阻塞范围),需要看日志里是否出现 `主 API 失败,切换备用` 或 `第 X 批异常 (尝试 Y/3)` 字样来判断是不是 LLM 调用本身出了问题。
+- **LLM 全部失败 vs 真的没找到候选**:两种情况**可以**通过 `scan_runs.status` 区分。LLM 批次连续失败(重试 3 次后仍失败)会被 `LLMEvaluationError` 捕获,`scan_run.status` 写为 `llm_failed`;正常完成但市场上确实没有候选,`status` 是 `ok`(`candidate_count=0`)。排查时先跑 `venv/bin/python main.py --status`(生产环境用 `.venv/bin/python`),看最新一条 `scan_run` 的 `status` 字段:`llm_failed` 表示 LLM/API 调用本身失败,**不应该**被解读成"没有候选";只有 `status=ok` 且 `candidate_count=0` 才是正常的"市场上没有好货"。日志里的 `主 API 失败,切换备用`/`第 X 批异常 (尝试 Y/3)` 可以进一步定位是主备哪一边出的问题,但不再是判断"是否是 LLM 故障"的唯一手段。
 - **飞书推送失败**:`post_to_feishu()` 只记录错误日志,不会让程序崩溃;候选和评估已经在推送之前写入 SQLite,不会因为推送失败而丢失。
 - **数据库影子写入失败**:`db.py` 的所有公开函数自己吞掉异常、只记日志,绝不向上抛出,保证抓取/LLM/推送主流程不受数据库问题影响。
 - **每日汇总池只在推送成功后清空**:`run_daily_summary()` 只有在飞书推送成功(`push_summary()` 返回 `True`)之后才删除 `daily_pool.json`;推送失败会保留该文件并记一条错误日志,等待下一次 22:00 触发时重试,不会丢数据。
 - **反馈签名缺失或不匹配一律拒绝写入**:`feedback_server.py` 的 `signature_valid()` 是 fail-closed 设计——`FEEDBACK_SIGNING_SECRET` 未配置、请求缺 `sig` 参数、或签名对不上,一律返回 403 且不写库。卡片按钮本身在 `FEEDBACK_URL`/`FEEDBACK_SIGNING_SECRET` 未正确配置(非占位符文本)时也不会被生成,不存在"无签名保护的反馈链接"这种中间状态。
 - **`--status` 和 `--weekly-review` 用于诊断**:排查问题时,先跑 `--status` 看最新一轮 `scan_run` 的状态和 `PRAGMA foreign_key_check`,再用 `--weekly-review` 看多天趋势。
+- **怀疑调度器停了或卡住,先看 `run_state.json`**:持续运行模式每 60 秒写一次 `event=scheduler_heartbeat`,每次扫描开始/结束也会写 `scan_start`/`scan_finish`。如果 `updated_at` 距当前时间已经超过一个扫描周期(`config.yaml` 的 `scan_interval_minutes`)还没更新,说明进程可能已经卡死或退出,应该去查 `systemctl status kendama-scan` 和 `journalctl -u kendama-scan`,而不是先怀疑 LLM 或飞书。`run_state.json` 是运行时自动生成的文件,不应提交到 Git,也不应手动编辑。
 - **真实密钥只在 `.env`**:所有命令都不会读取 `.env` 内容后打印到日志/报告/终端;`.env` 已在 `.gitignore` 中,不应该被提交。
 - **生产部署 vs 本地**:生产环境只负责无人值守持续运行(`python main.py` 持续模式),推荐用 systemd 托管扫描服务(`main.py`)和反馈服务(`feedback_server.py`)两个独立 unit,崩溃自动重启、开机自启,日志用 `journalctl -u <unit> -f` 查看;本地负责开发、调试,以及 `--status`/`--weekly-review`/`--refresh-signals` 这类不产生真实抓取/LLM/飞书副作用的诊断命令。通用部署流程(本地开发 → `git commit`/`push` → 服务器 `git pull` → 安装依赖 → systemd 管理两个服务)见根目录 [`README.md`](README.md) 的"部署到云服务器"章节。
 

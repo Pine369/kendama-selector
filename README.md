@@ -224,7 +224,7 @@ v1 用 PushPlus + 微信,卡片里的"按钮"其实是超链接,
 
 ```bash
 # 克隆仓库
-git clone https://github.com/yourname/kendama-selector.git
+git clone https://github.com/Pine369/kendama-selector.git
 cd kendama-selector
 
 # 安装依赖
@@ -320,8 +320,15 @@ python main.py --check-config
 2. **临时隧道工具**:本地开发或还没有域名时,可以用任意提供 HTTPS 公网地址的
    内网穿透工具,把本地 5001 端口映射出去,拿到的 `https://` 地址填进 `FEEDBACK_URL`。
 
+**5001 本身不应该直接暴露到公网。** 用反向代理方案时,对公网开放的应该只有
+80/443(反代所在的端口),5001 只监听 `127.0.0.1`,由反代转发访问;是否真的
+收口取决于服务器防火墙/安全组配置,而不是 `feedback_server.py` 代码本身
+——这是一步需要单独确认的安全加固,不会因为"配了反代"就自动生效。
+
 启动时 `main.py` 会打印一行诊断日志,提示 `FEEDBACK_URL`/`FEEDBACK_SIGNING_SECRET`
 是否已正确配置(而非占位符文本),方便排查"按钮看不见"的问题。
+
+云端生产环境的具体收口方式(Caddy + 防火墙规则)见 [`docs/runbook.md`](docs/runbook.md)。
 
 ### 适配其他品类
 
@@ -466,10 +473,12 @@ kendama-selector/
 | `feedback.db` | 兼容性反馈库:`feedback_server.py` 为兼容旧反馈链路仍会写入,同时向 `kendama.db.feedback_events` 追加同一条历史事件;`--migrate-feedback` 用于把既有历史反馈幂等导入主库 |
 | `kendama.db` | 完整历史:`scan_runs`/`listings`/`price_history`/`evaluations`/`feedback_events` |
 | `scraper_health.json` | 抓取健康检查的连续 0 计数状态 |
+| `run_state.json` | 调度器 heartbeat/运行状态文件:记录最近一次事件(扫描开始/结束、心跳等)和时间戳,用于判断持续运行模式下系统是否还活着。持续模式下每 60 秒刷新一次;如果 `updated_at` 长时间不更新,说明调度器可能已经停止或卡住。这是运行时自动生成的文件,**不应提交、不应手动编辑** |
 | `reports/` | `--weekly-review` 生成的周报目录 |
 | `personalized_signals.md` | `--refresh-signals` 生成的偏好信号,仅供人工审核 |
 
-完整的字段含义、生命周期和故障排查方式见 [`SKILL.md`](SKILL.md)。
+完整的字段含义、生命周期和故障排查方式见 [`SKILL.md`](SKILL.md);
+云端生产环境的实际配置和日常巡检步骤见 [`docs/runbook.md`](docs/runbook.md)。
 
 ---
 
@@ -547,10 +556,7 @@ A: 我这个项目的核心逻辑很简单——
 
 **Q: 为什么从 PushPlus 换成飞书?**
 
-A: PushPlus 推到微信的"按钮"本质是超链接,
-微信内置浏览器对外部域名做了拦截,点击只能复制链接,反馈链路走不通。
-飞书自定义机器人的 button 是原生交互组件,点击会打开带签名的 HTTPS 反馈链接,再由反馈端完成校验和写入,
-对个人项目是性价比最高的方案。
+A: 详见前文["为什么换掉 PushPlus"](#为什么换掉-pushplus)一节,这里不重复展开。
 
 **Q: 为什么不用 GPT-4 而用 DeepSeek?**
 
@@ -615,11 +621,12 @@ A: 从启动扫描到推送到手机,通常在一两分钟量级。
 
 ## License
 
-[MIT](LICENSE)
+暂未指定开源许可证(仓库当前没有 LICENSE 文件)。
 
 仓库内的 `rules.example.md` 和 `cases.example.md` 是脱敏示例,
 不包含完整的商业判断逻辑。
-代码框架自由使用,使用导致的任何损失由使用者自行承担。
+在明确许可证之前,请勿假定代码可自由复用或分发;
+如需引用或复用代码框架,请先联系仓库所有者确认授权范围。
 
 ---
 
