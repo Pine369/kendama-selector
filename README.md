@@ -332,15 +332,23 @@ python main.py --check-config
 
 ### 适配其他品类
 
-`rules.md` 和 `cases.md` 是这个项目的核心。
-换品类时只需重写这两个文件:
+当前项目主要为剑玉品类设计。对于相似的跨境采销品类,可以复用"采集 → 规则预筛 →
+LLM 判断 → Python 算账 → 飞书反馈"这套工作流,但不能简单理解为只改 `rules.md`
+和 `cases.md` 就能完整迁移。**当前版本更准确地说是可迁移的选品工作流模板,不是
+已经完成的多品类系统。**
 
-- `rules.md`:你的判断规则(品牌、价格区间、款式偏好等)
-- `cases.md`:你的实战案例(过去赚到的、踩过的坑)
+适配新品类通常需要检查:
 
-代码层面不需要改动,LLM 会读这两个文件作为上下文;
-成本/利润公式和标签阈值是代码里的确定性规则,如果新品类的成本结构不同,
-需要同步调整 `ai_filter.py` 的 `calculate_cost()`/`assign_tag()`。
+- `rules.md`:品类判断规则
+- `cases.md`:历史案例
+- `config.yaml`:关键词、品牌白名单、扫描频率(目前是 `けん玉`/`Kendama` 关键词
+  和剑玉品牌白名单,硬编码在配置里)
+- `ai_filter.py`:成本模型、税费、运费、利润阈值、标签分档(`calculate_cost()`/
+  `assign_tag()` 里的免税门槛、13% 税率、五档利润区间都是按剑玉价格带调出来的)
+- 飞书卡片字段:展示字段和按钮文案是否适合新品类(目前写死了"煤炉价""前往煤炉"
+  这类 Mercari 专属措辞)
+- `scraper.py`:Mercari / Yahoo Auctions / Rakuten 是否仍是合适的平台
+- `db.py`:日元价格、国内参考价、反馈字段是否足够表达新品类的决策依据
 
 ### 部署到云服务器(通用流程)
 
@@ -417,6 +425,34 @@ sudo systemctl restart kendama-scan kendama-feedback
 
 ---
 
+## 当前生产状态
+
+这套系统目前 7x24 跑在腾讯云东京服务器上:`kendama-scan.service` 负责扫描,
+`kendama-feedback.service` 负责接收反馈(监听本机 5001),对外通过 Caddy 反代到
+`https://feedback.pine369.com/feedback` 提供 HTTPS 入口,5001 本身不对公网开放。
+
+**HTTPS 反馈链路已完成端到端验证**:测试飞书卡片按钮可通过
+`https://feedback.pine369.com/feedback` 访问反馈服务,完成 HMAC 签名校验,并
+成功写入 SQLite 反馈记录(测试记录事后已清理,不影响周报/偏好信号统计)。旧飞书
+卡片不会自动更新为 HTTPS——切换 `FEEDBACK_URL` 只影响之后新推送的卡片,历史消息
+里的旧按钮不会被追溯修改。验收记录见 [`docs/runbook.md`](docs/runbook.md)。
+
+## 近期重要升级记录
+
+> 主题级摘要,不是逐行 changelog;详细的代码差异、commit 对应关系和验证记录见
+> [`docs/runbook.md`](docs/runbook.md)。
+
+- **调度更抗炸**:单轮扫描或汇总任务出异常不再拖垮整个进程,新增 `run_state.json`
+  心跳文件判断调度器是否还活着,新增 `--check-config` 做启动前自检
+- **故障不再伪装成"没候选"**:LLM 连续失败会被记录为 `scan_runs.status=llm_failed`,
+  和"市场上确实没有好货"(`status=ok`)区分开
+- **LLM 输出更难被污染**:候选的 URL 必须来自本轮真实抓取结果,价格只认爬虫原始值,
+  校验不过的候选不会进 `daily_pool.json`、也不会推送到飞书
+- **HTTPS 反馈链路上线**:反馈入口从直连 5001 切换为 Caddy 反代的 HTTPS 域名,
+  相关文档(`SKILL.md`/`docs/runbook.md`)已同步
+
+---
+
 ## 运行成本
 
 以我个人的实际使用为例(每小时扫描一次,三平台):
@@ -426,7 +462,7 @@ sudo systemctl restart kendama-scan kendama-feedback
 | 云服务器 | 视配置和厂商而定 | 2 核 2G 级别的入门配置即可 |
 | DeepSeek API | 约 5-15 元 | 每小时一次,日均约 24 次调用 |
 | 飞书自定义机器人 | 0 元 | 个人和小团队免费 |
-| 域名 / SSL(可选) | 约 1-5 元 | 域名几块钱一年,Let's Encrypt 证书免费 |
+| 域名 / SSL(可选) | 约 7 元/月 | 域名通常几十元/年起,本项目 pine369.com 为 83 元/年;HTTPS 证书使用 Let's Encrypt,免费自动续期 |
 
 如果用 GPT-4 / Claude 替代 DeepSeek,API 成本上升 5-10 倍,
 对剑玉这种客单价不高的品类不划算。
@@ -453,6 +489,7 @@ kendama-selector/
 ├── rules.example.md            选品规则(脱敏示例)
 ├── cases.example.md            实战案例(脱敏示例)
 ├── SKILL.md                    运行契约:命令、数据文件、故障排查、验收范围
+├── docs/runbook.md              生产环境运维手册:服务器快照、日常巡检、故障排查、备份建议
 └── .gitignore
 ```
 

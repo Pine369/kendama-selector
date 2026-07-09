@@ -139,3 +139,37 @@ cp /etc/systemd/system/kendama-feedback.service "$BACKUP_DIR/"
 ```
 
 建议定期清理过旧的备份目录,避免无限占用磁盘。
+
+---
+
+## 6. 近期升级的修改依据
+
+README 的"近期重要升级记录"是主题级摘要,这里保留可追溯的原始依据,方便日后核查。
+
+| 内容 | 依据来源 | 相关文件 / commit | 是否已验证 |
+|---|---|---|---|
+| 主调度循环异常保护、`run_state.json`、`--check-config`、`llm_failed`、daily_pool 去重 | 代码改动 | `main.py`/`ai_filter.py`,commit `170fc8a` | 已通过 `git show` 核实 |
+| LLM 输出 URL 校验、价格取原始值、非法输出不进池 | 代码改动 | `ai_filter.py`,commit `e71fbc3` | 已通过 `git show` 核实 |
+| SKILL.md/注释同步、新增本手册 | 文档改动 | `SKILL.md`/`feedback_server.py`/`docs/runbook.md`,commit `e33b8c4` | 已通过 `git show` 核实 |
+| Caddy 反代、5001 收口、云端真实域名 | 生产环境现状 | 本文件第 1 节 | 服务器侧配置不在本仓库,无法从代码验证,依据是既有生产状态记录 |
+| `.env` 的 `FEEDBACK_URL` 已切 HTTPS | 生产环境现状 | 不适用(`.env` 不在版本控制) | 未独立验证,依据现有生产状态记录 |
+| 旧飞书卡片不会自动变 HTTPS | 代码逻辑推断 | `main.py` 的 `feedback_link()`/`build_item_card()` | 代码逻辑已核实;飞书侧端到端点击效果见下方"7. HTTPS 反馈链路 E2E 验收记录" |
+
+---
+
+## 7. HTTPS 反馈链路 E2E 验收记录
+
+- **日期**:2026-07-09
+- **测试 ID**:`test-e2e-1783586087`
+- **验证内容**:
+  - 飞书测试卡片按钮点击
+  - HTTPS 域名(`feedback.pine369.com`)访问
+  - Caddy 反代(TLS 证书已成功获取,日志出现 `certificate obtained successfully`)
+  - `feedback_server.py` 的 HMAC 签名校验
+  - `kendama.db.feedback_events` 写入
+- **观察到的证据**:
+  - `kendama-feedback.service` 日志:`记录反馈: test-e2e-1783586087 放弃 (test-e2e-verification)`
+  - 对应 `/feedback` 请求返回 HTTP 200
+- **结果**:通过
+- **说明**:测试记录已从 `kendama.db.feedback_events` 删除,不影响周报/偏好信号统计;
+  测试用临时脚本 `/tmp/feedback_e2e_test.py` 已不存在,无需清理
