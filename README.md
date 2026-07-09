@@ -79,92 +79,88 @@
 
 ```mermaid
 flowchart TB
-    subgraph Sources["数据源"]
-        direction LR
-        A1[Mercari]
-        A2[Yahoo Auctions]
-        A3[Rakuten]
+    subgraph Input["输入层:数据源与人工知识"]
+        DS["Mercari / Yahoo Auctions / Rakuten"]
+        RULES["rules.md / cases.md<br/>人工选品规则与案例"]
+        CONFIG["config.yaml / .env<br/>关键词 · 品牌白名单 · 扫描频率 · 密钥"]
     end
 
-    subgraph Knowledge["领域知识(人工维护)"]
-        direction LR
-        K1[rules.md<br/>选品规则]
-        K2[cases.md<br/>实战案例]
+    subgraph Runtime["运行层:云端 systemd 守护"]
+        SCAN["kendama-scan.service<br/>main.py 调度器"]
+        SCRAPER["Playwright 采集"]
+        PREFILTER["本地预筛<br/>品牌白名单 / URL 清洗 / 历史同价跳过"]
+        LLM["LLM 语义评估<br/>品牌识别 / 案例命中 / 国内参考价"]
+        VALIDATE["LLM 输出校验<br/>URL 必须来自输入集合<br/>价格使用爬虫原始值"]
+        CALC["Python 确定性算账<br/>成本 / 税费 / 利润 / 标签"]
+        SPLIT{"利润是否 ≥ 0"}
+        ARCHIVE["仅留档"]
+        CANDIDATE["进入候选池<br/>排序取 Top 15"]
     end
 
-    subgraph Pipeline["筛选、评估与分流"]
-        direction TB
-        B[Playwright 爬虫]
-        C[品牌白名单预筛]
-        C2[URL 清洗 / 同轮去重<br/>历史同价跳过]
-        D[LLM 评估<br/>品牌 · 金矿/踩坑案例 · 国内参考价]
-        E[Python 确定性算账<br/>成本 / 税 / 利润 / 五档标签]
-        R[评估结果持久化<br/>所有完成计算的候选]
-        P{利润 ≥ 0?}
-        Q[可推送候选]
-        T[按利润排序<br/>取前 15 条]
-        X[跳过<br/>仅留档,不进入推送]
+    subgraph Storage["数据层:可追溯与可复盘"]
+        STATE["run_state.json<br/>heartbeat / 最近运行状态"]
+        DB[("kendama.db<br/>scan_runs / listings / price_history<br/>evaluations / feedback_events")]
+        POOL["daily_pool.json<br/>当日可推送候选池"]
+        LEGACY[("feedback.db<br/>兼容旧反馈链路")]
     end
 
-    subgraph Storage["持久化数据"]
-        S1[(kendama.db<br/>scan_runs / listings / price_history /<br/>evaluations / feedback_events)]
-        S2[daily_pool.json<br/>当日候选池]
-        S3[(feedback.db<br/>兼容性反馈库)]
+    subgraph Output["输出层:推送与复盘"]
+        CARD["飞书即时卡片<br/>每轮 Top 15"]
+        DAILY["每日汇总卡片<br/>22:00 读取 daily_pool"]
+        REVIEW["周报 / 偏好信号<br/>--weekly-review / --refresh-signals"]
     end
 
-    subgraph Outputs["输出"]
-        O1[飞书即时交互卡片<br/>每轮扫描后]
-        O2[每日汇总卡片<br/>22:00]
-        O3[周报 / 偏好信号<br/>--weekly-review / --refresh-signals]
+    subgraph Feedback["反馈层:HTTPS 入口与人工决策"]
+        USER["用户点击飞书按钮"]
+        CADDY["Caddy HTTPS 入口<br/>feedback.pine369.com<br/>公网只开放 80 / 443"]
+        SERVER["kendama-feedback.service<br/>feedback_server.py<br/>服务端口 5001(不直接公网暴露)"]
     end
 
-    subgraph Feedback["反馈闭环"]
-        F1[点击按钮<br/>打开带 HMAC 签名的 HTTPS 反馈链接]
-        F2[Flask 反馈端<br/>签名校验]
-    end
+    DS --> SCRAPER
+    RULES --> LLM
+    CONFIG --> SCAN
 
-    Sources --> B --> C --> C2
-    K1 --> D
-    K2 --> D
-    C2 -->|送入 LLM| D --> E
+    SCAN --> STATE
+    SCAN --> SCRAPER
+    SCRAPER --> PREFILTER
+    PREFILTER --> LLM
+    LLM --> VALIDATE
+    VALIDATE --> CALC
+    CALC --> DB
+    CALC --> SPLIT
 
-    E --> R
-    R -->|全部完成计算的候选| S1
-    R --> P
+    SPLIT -->|否| ARCHIVE
+    ARCHIVE --> DB
 
-    P -->|否| X
-    P -->|是| Q
-    Q -->|全量写入| S2
-    Q --> T --> O1
-    S2 -->|22:00 读取、去重、排序| O2
+    SPLIT -->|是| CANDIDATE
+    CANDIDATE --> POOL
+    CANDIDATE --> CARD
 
-    O1 --> F1 --> F2
-    F2 -->|兼容性写入| S3
-    F2 -->|追加反馈事件| S1
-    S1 -.只读统计,不反向修改规则.-> O3
+    POOL --> DAILY
+    DB --> REVIEW
 
-    style Knowledge fill:#fff4e6
-    style Sources fill:#e6f3ff
-    style Outputs fill:#e6ffe6
-    style Feedback fill:#ffe6f0
+    CARD --> USER
+    USER --> CADDY
+    CADDY --> SERVER
+    SERVER -->|写入 feedback_events| DB
+    SERVER -->|兼容性写入| LEGACY
+
+    style Input fill:#e6f3ff
+    style Runtime fill:#fff4e6
     style Storage fill:#eef2ff
+    style Output fill:#e6ffe6
+    style Feedback fill:#ffe6f0
 ```
 
 ### 核心流程
 
-1. **抓取**:Playwright 模拟浏览器访问 Mercari / Yahoo 拍卖 / Rakuten 三个平台,按关键词提取商品标题、价格、链接、图片。
-2. **品牌白名单**:按 `config.yaml` 里的品牌关键词做大小写无关的子串匹配,过滤掉不相关商品。
-3. **URL 清洗与去重**:剔除无效链接;同一轮内同一 URL 只保留第一条(价格冲突只计数、不静默覆盖);同一商品若与历史记录的价格完全相同则跳过,不重复送 LLM。
-4. **LLM 评估**:按 15 条一批送 DeepSeek(主)/硅基流动(备),带上 `rules.md` 和 `cases.md` 作为上下文。LLM **只输出三件事**:品牌识别、是否命中金矿/踩坑案例、国内参考行情价——不计算利润、成本、税。
-5. **Python 确定性算账**:用确定性公式换算汇率、算总成本(运费手续费 + 满一定基础价比例后的关税),再按利润把商品分进五档:**跳过 / 盲盒 / 观望 / 推荐 / 强推**。具体阈值以 `ai_filter.py` 的 `assign_tag()` 和 `rules.md` 第七条为准,LLM 判断的"是否金矿"不再影响最终标签。
-6. **评估结果持久化**:不论最终是否被淘汰,只要完成利润计算就写入 `kendama.db` 的 `evaluations` 表;同时维护 `listings`/`price_history` 记录商品身份与价格轨迹,用于识别降价信号。**这一步在判断利润正负之前发生**,负利润的"跳过"商品也会留档,只是不会进入后面任何推送环节。
-7. **利润分流(只有这一次判断)**:完成落库之后,才判断利润是否 ≥ 0。利润 < 0 的商品到此为止,标记"跳过",不再出现在 `daily_pool.json` 或飞书里。利润 ≥ 0 的商品形成唯一一份**"可推送候选"**集合,后面两个输出都从这份集合派生,不是两个独立分支。
-8. **两个输出,同一份候选集合**:
-   - **全量**写入 `daily_pool.json`,供当天 22:00 的汇总使用;
-   - 按利润降序**取前 15 条**,推送本轮飞书即时交互卡片,带 HMAC 签名的反馈按钮。
-9. **反馈闭环**:点击按钮 → `feedback_server.py` 校验签名(缺签名或签名不匹配一律拒绝,返回 403)→ 同时写入两个库:兼容旧链路的 `feedback.db`,以及作为主历史库的 `kendama.db.feedback_events`。
-10. **每日汇总**:每天 22:00(可配置)从 `daily_pool.json` 读取当天累计的全部候选,去重排序后推送一张汇总卡片;**推送成功才清空候选池**,失败则保留、等待下一次重试。这是一份独立于"即时 Top 15"的汇总,不会互相覆盖。
-11. **周报与偏好信号**:`--weekly-review`/`--refresh-signals` 只读 `kendama.db`,生成可读的统计报告,不反向修改规则文件、prompt 或数据库。
+1. **采集与预筛**:Playwright 按关键词抓取 Mercari / Yahoo 拍卖 / Rakuten 三个平台,经品牌白名单、URL 清洗去重、历史同价跳过后送入 LLM。
+2. **LLM 只做语义判断**:按批送 DeepSeek(主)/硅基流动(备),结合 `rules.md`/`cases.md` 判断品牌、是否命中金矿/踩坑案例、国内参考行情价——不计算利润、成本、税。
+3. **Python 做确定性算账**:用确定性公式换算汇率、算总成本(运费手续费 + 关税),按利润分进五档:跳过 / 盲盒 / 观望 / 推荐 / 强推,阈值以 `ai_filter.py` 的 `assign_tag()` 为准。
+4. **输出校验与失败分流**:LLM 返回的 URL 必须来自本轮真实输入、价格只认爬虫原始值,校验不过的候选直接丢弃;LLM 连续失败会被记录为 `scan_runs.status=llm_failed`,不会伪装成"没有候选"。
+5. **持久化与候选池**:不论利润正负,只要完成计算就写入 `kendama.db`;利润 ≥ 0 的候选写入 `daily_pool.json`,按利润取前 15 条推送本轮飞书卡片,`run_state.json` 记录调度器心跳。
+6. **飞书推送与人工反馈**:卡片按钮打开带 HMAC 签名的 HTTPS 反馈链接,经 Caddy 反代到本机 `kendama-feedback.service`(5001 不对公网开放),签名校验通过后写入 `kendama.db.feedback_events`,同时兼容写入 `feedback.db`。
+7. **周报复盘与偏好信号**:`--weekly-review`/`--refresh-signals` 只读 `kendama.db` 生成统计报告,不反向修改规则文件、prompt 或数据库;每日 22:00 从 `daily_pool.json` 去重排序推送汇总卡片,推送成功才清空候选池。
 
 ### 为什么换掉 PushPlus
 
