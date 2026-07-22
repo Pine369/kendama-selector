@@ -1,0 +1,108 @@
+{
+  "fixed_baseline": [
+    {
+      "item_id": "m100",
+      "item_url": "https://jp.mercari.com/item/m100",
+      "title": "Baseline Kendama",
+      "image_url": "https://img.example/m100.jpg",
+      "listing_type": "fixed",
+      "current_price": 5000
+    }
+  ],
+  "fixed_with_new": [
+    {
+      "item_id": "m100",
+      "item_url": "https://jp.mercari.com/item/m100",
+      "title": "Baseline Kendama",
+      "image_url": "https://img.example/m100.jpg",
+      "listing_type": "fixed",
+      "current_price": 5000
+    },
+    {
+      "item_id": "m200",
+      "item_url": "https://jp.mercari.com/item/m200",
+      "title": "New Kendama",
+      "image_url": "https://img.example/m200.jpg",
+      "listing_type": "fixed",
+      "current_price": 8000
+    }
+  ],
+  "fixed_drop": [
+    {
+      "item_id": "m100",
+      "item_url": "https://jp.mercari.com/item/m100",
+      "title": "Baseline Kendama",
+      "image_url": "https://img.example/m100.jpg",
+      "listing_type": "fixed",
+      "current_price": 4500
+    }
+  ],
+  "fixed_raise": [
+    {
+      "item_id": "m100",
+      "item_url": "https://jp.mercari.com/item/m100",
+      "title": "Baseline Kendama",
+      "image_url": "https://img.example/m100.jpg",
+      "listing_type": "fixed",
+      "current_price": 5500
+    }
+  ],
+  "auction_baseline": [
+    {
+      "item_id": "a100",
+      "item_url": "https://auctions.yahoo.co.jp/jp/auction/a100",
+      "title": "Baseline Auction",
+      "image_url": "https://img.example/a100.jpg",
+      "listing_type": "auction",
+      "current_price": 3000,
+      "auction_start_price": 3000,
+      "auction_buyout_price": 9000
+    }
+  ],
+  "auction_bid_up": [
+    {
+      "item_id": "a100",
+      "item_url": "https://auctions.yahoo.co.jp/jp/auction/a100",
+      "title": "Baseline Auction",
+      "image_url": "https://img.example/a100.jpg",
+      "listing_type": "auction",
+      "current_price": 4200,
+      "auction_start_price": 3000,
+      "auction_buyout_price": 9000
+    }
+  ],
+  "auction_terms_change": [
+    {
+      "item_id": "a100",
+      "item_url": "https://auctions.yahoo.co.jp/jp/auction/a100",
+      "title": "Baseline Auction",
+      "image_url": "https://img.example/a100.jpg",
+      "listing_type": "auction",
+      "current_price": 3000,
+      "auction_start_price": 2500,
+      "auction_buyout_price": 8500
+    }
+  ],
+  "auction_with_new": [
+    {
+      "item_id": "a100",
+      "item_url": "https://auctions.yahoo.co.jp/jp/auction/a100",
+      "title": "Baseline Auction",
+      "image_url": "https://img.example/a100.jpg",
+      "listing_type": "auction",
+      "current_price": 3000,
+      "auction_start_price": 3000,
+      "auction_buyout_price": 9000
+    },
+    {
+      "item_id": "a200",
+      "item_url": "https://auctions.yahoo.co.jp/jp/auction/a200",
+      "title": "New Auction",
+      "image_url": "https://img.example/a200.jpg",
+      "listing_type": "auction",
+      "current_price": 1000,
+      "auction_start_price": 1000,
+      "auction_buyout_price": null
+    }
+  ]
+}

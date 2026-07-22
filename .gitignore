@@ -14,3 +14,14 @@ cases.md
 personalized_signals.md
 reports/
 全网通缉报告*
+
+# Independent seller-monitor runtime files (examples remain tracked)
+seller_monitor.yaml
+seller_monitor.env
+seller_monitor.db*
+seller_monitor_state.json
+seller_monitor.log*
+seller_monitor_notification_preview.html
+
+# Offline seller-monitor fixtures are source artifacts, not runtime state.
+!tests/fixtures/**/*.json

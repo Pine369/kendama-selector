@@ -1,0 +1,18 @@
+version: 1
+
+settings:
+  database_path: seller_monitor.db
+  state_path: seller_monitor_state.json
+  log_path: seller_monitor.log
+  notify_price_increase: false
+
+# V0 第一阶段仅验证配置和离线逻辑。真实平台适配器完成前不要运行真实扫描。
+# “日拍”如指 Yahoo! Auctions，请使用 platform: yahoo_auctions，避免重复配置。
+sellers:
+  - seller_key: seller_example_mercari
+    seller_id: example_seller_id
+    seller_identity_source: url_native_id
+    seller_name: 示例卖家（请替换或删除）
+    platform: mercari
+    seller_url: https://jp.mercari.com/user/profile/example_seller_id
+    enabled: false

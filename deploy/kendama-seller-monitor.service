@@ -1,0 +1,16 @@
+[Unit]
+Description=Kendama independent seller monitor scan
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+WorkingDirectory=/home/ubuntu/kendama-selector
+ExecStart=/home/ubuntu/kendama-selector/venv/bin/python -m seller_monitor.main --once
+Restart=on-failure
+RestartSec=120
+# systemd will not start a second instance of an already-active oneshot unit.
+
+[Install]
+WantedBy=multi-user.target

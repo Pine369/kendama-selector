@@ -1,0 +1,12 @@
+[Unit]
+Description=Run kendama seller monitor every 30 minutes
+
+[Timer]
+OnCalendar=*-*-* *:00,30:00
+RandomizedDelaySec=300
+Persistent=true
+Unit=kendama-seller-monitor.service
+
+[Install]
+WantedBy=timers.target
+
