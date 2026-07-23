@@ -1,0 +1,1673 @@
+{
+  "result": "OK",
+  "meta": {
+    "has_next": true
+  },
+  "data": [
+    {
+      "id": "m9000000022",
+      "seller": {
+        "id": "example_seller_id",
+        "name": "example_seller"
+      },
+      "status": "on_sale",
+      "name": "测试商品 1",
+      "price": 1500,
+      "thumbnails": [
+        "https://example.com/images/item-22.jpg"
+      ],
+      "root_category_id": 0,
+      "num_likes": 0,
+      "num_comments": 0,
+      "created": 1783715358,
+      "updated": 1784450966,
+      "item_category": null,
+      "item_category_ntiers": {
+        "id": 7381,
+        "name": "けん玉",
+        "parent_category_id": 770,
+        "parent_category_name": "スポーツトイ・アクショントイ",
+        "root_category_id": 1328,
+        "root_category_name": "ゲーム・おもちゃ・グッズ"
+      },
+      "parent_categories_ntiers": [
+        {
+          "id": 1328,
+          "name": "ゲーム・おもちゃ・グッズ"
+        },
+        {
+          "id": 83,
+          "name": "おもちゃ"
+        },
+        {
+          "id": 770,
+          "name": "スポーツトイ・アクショントイ"
+        }
+      ],
+      "shipping_from_area": {
+        "id": 31,
+        "name": "鳥取県"
+      },
+      "shipping_method_id": 17,
+      "pager_id": 5771612057,
+      "liked": false,
+      "item_pv": 0,
+      "recent_item_pv": 0,
+      "is_no_price": 2000,
+      "is_archived": false,
+      "is_url_limited": false
+    },
+    {
+      "id": "m9000000016",
+      "seller": {
+        "id": "example_seller_id",
+        "name": "example_seller"
+      },
+      "status": "sold_out",
+      "name": "测试商品 8",
+      "price": 2500,
+      "thumbnails": [
+        "https://example.com/images/item-16.jpg"
+      ],
+      "root_category_id": 0,
+      "num_likes": 0,
+      "num_comments": 0,
+      "created": 1783669397,
+      "updated": 1784445895,
+      "item_category": null,
+      "item_category_ntiers": {
+        "id": 7381,
+        "name": "けん玉",
+        "parent_category_id": 770,
+        "parent_category_name": "スポーツトイ・アクショントイ",
+        "root_category_id": 1328,
+        "root_category_name": "ゲーム・おもちゃ・グッズ"
+      },
+      "parent_categories_ntiers": [
+        {
+          "id": 1328,
+          "name": "ゲーム・おもちゃ・グッズ"
+        },
+        {
+          "id": 83,
+          "name": "おもちゃ"
+        },
+        {
+          "id": 770,
+          "name": "スポーツトイ・アクショントイ"
+        }
+      ],
+      "shipping_from_area": {
+        "id": 31,
+        "name": "鳥取県"
+      },
+      "shipping_method_id": 17,
+      "pager_id": 5771474174,
+      "liked": false,
+      "item_pv": 0,
+      "recent_item_pv": 0,
+      "transaction_evidence": {
+        "status": "done"
+      },
+      "is_no_price": 3000,
+      "is_archived": false,
+      "is_url_limited": false
+    },
+    {
+      "id": "m9000000024",
+      "seller": {
+        "id": "example_seller_id",
+        "name": "example_seller"
+      },
+      "status": "trading",
+      "name": "测试商品 7",
+      "price": 3500,
+      "thumbnails": [
+        "https://example.com/images/item-24.jpg"
+      ],
+      "root_category_id": 0,
+      "num_likes": 0,
+      "num_comments": 0,
+      "created": 1783669392,
+      "updated": 1784724509,
+      "item_category": null,
+      "item_category_ntiers": {
+        "id": 7381,
+        "name": "けん玉",
+        "parent_category_id": 770,
+        "parent_category_name": "スポーツトイ・アクショントイ",
+        "root_category_id": 1328,
+        "root_category_name": "ゲーム・おもちゃ・グッズ"
+      },
+      "parent_categories_ntiers": [
+        {
+          "id": 1328,
+          "name": "ゲーム・おもちゃ・グッズ"
+        },
+        {
+          "id": 83,
+          "name": "おもちゃ"
+        },
+        {
+          "id": 770,
+          "name": "スポーツトイ・アクショントイ"
+        }
+      ],
+      "shipping_from_area": {
+        "id": 31,
+        "name": "鳥取県"
+      },
+      "shipping_method_id": 17,
+      "pager_id": 5771474159,
+      "liked": false,
+      "item_pv": 0,
+      "recent_item_pv": 0,
+      "transaction_evidence": {
+        "status": "wait_review"
+      },
+      "is_no_price": 4000,
+      "is_archived": false,
+      "is_url_limited": false
+    },
+    {
+      "id": "m9000000026",
+      "seller": {
+        "id": "example_seller_id",
+        "name": "example_seller"
+      },
+      "status": "sold_out",
+      "name": "测试商品 14",
+      "price": 4500,
+      "thumbnails": [
+        "https://example.com/images/item-26.jpg"
+      ],
+      "root_category_id": 0,
+      "num_likes": 0,
+      "num_comments": 0,
+      "created": 1783581144,
+      "updated": 1783844578,
+      "item_category": null,
+      "item_category_ntiers": {
+        "id": 7381,
+        "name": "けん玉",
+        "parent_category_id": 770,
+        "parent_category_name": "スポーツトイ・アクショントイ",
+        "root_category_id": 1328,
+        "root_category_name": "ゲーム・おもちゃ・グッズ"
+      },
+      "parent_categories_ntiers": [
+        {
+          "id": 1328,
+          "name": "ゲーム・おもちゃ・グッズ"
+        },
+        {
+          "id": 83,
+          "name": "おもちゃ"
+        },
+        {
+          "id": 770,
+          "name": "スポーツトイ・アクショントイ"
+        }
+      ],
+      "shipping_from_area": {
+        "id": 31,
+        "name": "鳥取県"
+      },
+      "shipping_method_id": 17,
+      "pager_id": 5771209415,
+      "liked": false,
+      "item_pv": 0,
+      "recent_item_pv": 0,
+      "transaction_evidence": {
+        "status": "done"
+      },
+      "is_no_price": 5000,
+      "is_archived": false,
+      "is_url_limited": false
+    },
+    {
+      "id": "m9000000023",
+      "seller": {
+        "id": "example_seller_id",
+        "name": "example_seller"
+      },
+      "status": "sold_out",
+      "name": "测试商品 9",
+      "price": 5500,
+      "thumbnails": [
+        "https://example.com/images/item-23.jpg"
+      ],
+      "root_category_id": 0,
+      "num_likes": 0,
+      "num_comments": 0,
+      "created": 1783326034,
+      "updated": 1783660934,
+      "item_category": null,
+      "item_category_ntiers": {
+        "id": 7381,
+        "name": "けん玉",
+        "parent_category_id": 770,
+        "parent_category_name": "スポーツトイ・アクショントイ",
+        "root_category_id": 1328,
+        "root_category_name": "ゲーム・おもちゃ・グッズ"
+      },
+      "parent_categories_ntiers": [
+        {
+          "id": 1328,
+          "name": "ゲーム・おもちゃ・グッズ"
+        },
+        {
+          "id": 83,
+          "name": "おもちゃ"
+        },
+        {
+          "id": 770,
+          "name": "スポーツトイ・アクショントイ"
+        }
+      ],
+      "shipping_from_area": {
+        "id": 31,
+        "name": "鳥取県"
+      },
+      "shipping_method_id": 17,
+      "pager_id": 5770444085,
+      "liked": false,
+      "item_pv": 0,
+      "recent_item_pv": 0,
+      "transaction_evidence": {
+        "status": "done"
+      },
+      "is_no_price": 6000,
+      "is_archived": false,
+      "is_url_limited": false
+    },
+    {
+      "id": "m9000000002",
+      "seller": {
+        "id": "example_seller_id",
+        "name": "example_seller"
+      },
+      "status": "sold_out",
+      "name": "测试商品 10",
+      "price": 6500,
+      "thumbnails": [
+        "https://example.com/images/item-2.jpg"
+      ],
+      "root_category_id": 0,
+      "num_likes": 0,
+      "num_comments": 0,
+      "created": 1783325068,
+      "updated": 1784197665,
+      "item_category": null,
+      "item_category_ntiers": {
+        "id": 7381,
+        "name": "けん玉",
+        "parent_category_id": 770,
+        "parent_category_name": "スポーツトイ・アクショントイ",
+        "root_category_id": 1328,
+        "root_category_name": "ゲーム・おもちゃ・グッズ"
+      },
+      "parent_categories_ntiers": [
+        {
+          "id": 1328,
+          "name": "ゲーム・おもちゃ・グッズ"
+        },
+        {
+          "id": 83,
+          "name": "おもちゃ"
+        },
+        {
+          "id": 770,
+          "name": "スポーツトイ・アクショントイ"
+        }
+      ],
+      "shipping_from_area": {
+        "id": 31,
+        "name": "鳥取県"
+      },
+      "shipping_method_id": 17,
+      "pager_id": 5770441187,
+      "liked": false,
+      "item_pv": 0,
+      "recent_item_pv": 0,
+      "transaction_evidence": {
+        "status": "done"
+      },
+      "is_no_price": 7000,
+      "is_archived": false,
+      "is_url_limited": false
+    },
+    {
+      "id": "m9000000020",
+      "seller": {
+        "id": "example_seller_id",
+        "name": "example_seller"
+      },
+      "status": "on_sale",
+      "name": "测试商品 6",
+      "price": 7500,
+      "thumbnails": [
+        "https://example.com/images/item-20.jpg"
+      ],
+      "root_category_id": 0,
+      "num_likes": 0,
+      "num_comments": 0,
+      "created": 1783245468,
+      "updated": 1784674857,
+      "item_category": null,
+      "item_category_ntiers": {
+        "id": 7381,
+        "name": "けん玉",
+        "parent_category_id": 770,
+        "parent_category_name": "スポーツトイ・アクショントイ",
+        "root_category_id": 1328,
+        "root_category_name": "ゲーム・おもちゃ・グッズ"
+      },
+      "parent_categories_ntiers": [
+        {
+          "id": 1328,
+          "name": "ゲーム・おもちゃ・グッズ"
+        },
+        {
+          "id": 83,
+          "name": "おもちゃ"
+        },
+        {
+          "id": 770,
+          "name": "スポーツトイ・アクショントイ"
+        }
+      ],
+      "shipping_from_area": {
+        "id": 31,
+        "name": "鳥取県"
+      },
+      "shipping_method_id": 17,
+      "pager_id": 5770202387,
+      "liked": false,
+      "item_pv": 0,
+      "recent_item_pv": 0,
+      "is_no_price": 8000,
+      "is_archived": false,
+      "is_url_limited": false
+    },
+    {
+      "id": "m9000000028",
+      "seller": {
+        "id": "example_seller_id",
+        "name": "example_seller"
+      },
+      "status": "sold_out",
+      "name": "测试商品 25",
+      "price": 8500,
+      "thumbnails": [
+        "https://example.com/images/item-28.jpg"
+      ],
+      "root_category_id": 0,
+      "num_likes": 0,
+      "num_comments": 0,
+      "created": 1783069245,
+      "updated": 1783412780,
+      "item_category": null,
+      "item_category_ntiers": {
+        "id": 7490,
+        "name": "キーホルダー",
+        "parent_category_id": 708,
+        "parent_category_name": "ミュージシャン",
+        "root_category_id": 1328,
+        "root_category_name": "ゲーム・おもちゃ・グッズ"
+      },
+      "parent_categories_ntiers": [
+        {
+          "id": 1328,
+          "name": "ゲーム・おもちゃ・グッズ"
+        },
+        {
+          "id": 77,
+          "name": "タレントグッズ"
+        },
+        {
+          "id": 708,
+          "name": "ミュージシャン"
+        }
+      ],
+      "shipping_from_area": {
+        "id": 31,
+        "name": "鳥取県"
+      },
+      "shipping_method_id": 17,
+      "pager_id": 5769673718,
+      "liked": false,
+      "item_pv": 0,
+      "recent_item_pv": 0,
+      "transaction_evidence": {
+        "status": "done"
+      },
+      "is_no_price": 9000,
+      "is_archived": false,
+      "is_url_limited": false
+    },
+    {
+      "id": "m9000000027",
+      "seller": {
+        "id": "example_seller_id",
+        "name": "example_seller"
+      },
+      "status": "sold_out",
+      "name": "测试商品 28",
+      "price": 9500,
+      "thumbnails": [
+        "https://example.com/images/item-27.jpg"
+      ],
+      "root_category_id": 0,
+      "num_likes": 0,
+      "num_comments": 0,
+      "created": 1782890271,
+      "updated": 1783281288,
+      "item_category": null,
+      "item_category_ntiers": {
+        "id": 7490,
+        "name": "キーホルダー",
+        "parent_category_id": 708,
+        "parent_category_name": "ミュージシャン",
+        "root_category_id": 1328,
+        "root_category_name": "ゲーム・おもちゃ・グッズ"
+      },
+      "parent_categories_ntiers": [
+        {
+          "id": 1328,
+          "name": "ゲーム・おもちゃ・グッズ"
+        },
+        {
+          "id": 77,
+          "name": "タレントグッズ"
+        },
+        {
+          "id": 708,
+          "name": "ミュージシャン"
+        }
+      ],
+      "shipping_from_area": {
+        "id": 31,
+        "name": "鳥取県"
+      },
+      "shipping_method_id": 17,
+      "pager_id": 5769136796,
+      "liked": false,
+      "item_pv": 0,
+      "recent_item_pv": 0,
+      "transaction_evidence": {
+        "status": "done"
+      },
+      "is_no_price": 10000,
+      "is_archived": false,
+      "is_url_limited": false
+    },
+    {
+      "id": "m9000000005",
+      "seller": {
+        "id": "example_seller_id",
+        "name": "example_seller"
+      },
+      "status": "sold_out",
+      "name": "测试商品 19",
+      "price": 10500,
+      "thumbnails": [
+        "https://example.com/images/item-5.jpg"
+      ],
+      "root_category_id": 0,
+      "num_likes": 0,
+      "num_comments": 0,
+      "created": 1782626660,
+      "updated": 1782928573,
+      "item_category": null,
+      "item_category_ntiers": {
+        "id": 1108,
+        "name": "まとめ売り",
+        "parent_category_id": 113,
+        "parent_category_name": "キッチン・日用品・その他",
+        "root_category_id": 113,
+        "root_category_name": "キッチン・日用品・その他"
+      },
+      "parent_categories_ntiers": [
+        {
+          "id": 113,
+          "name": "キッチン・日用品・その他"
+        }
+      ],
+      "shipping_from_area": {
+        "id": 31,
+        "name": "鳥取県"
+      },
+      "shipping_method_id": 17,
+      "pager_id": 5768345963,
+      "liked": false,
+      "item_pv": 0,
+      "recent_item_pv": 0,
+      "transaction_evidence": {
+        "status": "done"
+      },
+      "is_no_price": 11000,
+      "is_archived": false,
+      "is_url_limited": false
+    },
+    {
+      "id": "m9000000021",
+      "seller": {
+        "id": "example_seller_id",
+        "name": "example_seller"
+      },
+      "status": "sold_out",
+      "name": "测试商品 12",
+      "price": 11500,
+      "thumbnails": [
+        "https://example.com/images/item-21.jpg"
+      ],
+      "root_category_id": 0,
+      "num_likes": 0,
+      "num_comments": 0,
+      "created": 1782277979,
+      "updated": 1783838929,
+      "item_category": null,
+      "item_category_ntiers": {
+        "id": 7381,
+        "name": "けん玉",
+        "parent_category_id": 770,
+        "parent_category_name": "スポーツトイ・アクショントイ",
+        "root_category_id": 1328,
+        "root_category_name": "ゲーム・おもちゃ・グッズ"
+      },
+      "parent_categories_ntiers": [
+        {
+          "id": 1328,
+          "name": "ゲーム・おもちゃ・グッズ"
+        },
+        {
+          "id": 83,
+          "name": "おもちゃ"
+        },
+        {
+          "id": 770,
+          "name": "スポーツトイ・アクショントイ"
+        }
+      ],
+      "shipping_from_area": {
+        "id": 31,
+        "name": "鳥取県"
+      },
+      "shipping_method_id": 17,
+      "pager_id": 5767299920,
+      "liked": false,
+      "item_pv": 0,
+      "recent_item_pv": 0,
+      "transaction_evidence": {
+        "status": "done"
+      },
+      "is_no_price": 12000,
+      "is_archived": false,
+      "is_url_limited": false
+    },
+    {
+      "id": "m9000000012",
+      "seller": {
+        "id": "example_seller_id",
+        "name": "example_seller"
+      },
+      "status": "sold_out",
+      "name": "测试商品 27",
+      "price": 12500,
+      "thumbnails": [
+        "https://example.com/images/item-12.jpg"
+      ],
+      "root_category_id": 0,
+      "num_likes": 0,
+      "num_comments": 0,
+      "created": 1782277239,
+      "updated": 1782634912,
+      "item_category": null,
+      "item_category_ntiers": {
+        "id": 7381,
+        "name": "けん玉",
+        "parent_category_id": 770,
+        "parent_category_name": "スポーツトイ・アクショントイ",
+        "root_category_id": 1328,
+        "root_category_name": "ゲーム・おもちゃ・グッズ"
+      },
+      "parent_categories_ntiers": [
+        {
+          "id": 1328,
+          "name": "ゲーム・おもちゃ・グッズ"
+        },
+        {
+          "id": 83,
+          "name": "おもちゃ"
+        },
+        {
+          "id": 770,
+          "name": "スポーツトイ・アクショントイ"
+        }
+      ],
+      "shipping_from_area": {
+        "id": 31,
+        "name": "鳥取県"
+      },
+      "shipping_method_id": 17,
+      "pager_id": 5767297700,
+      "liked": false,
+      "item_pv": 0,
+      "recent_item_pv": 0,
+      "transaction_evidence": {
+        "status": "done"
+      },
+      "is_no_price": 13000,
+      "is_archived": false,
+      "is_url_limited": false
+    },
+    {
+      "id": "m9000000017",
+      "seller": {
+        "id": "example_seller_id",
+        "name": "example_seller"
+      },
+      "status": "sold_out",
+      "name": "测试商品 24",
+      "price": 13500,
+      "thumbnails": [
+        "https://example.com/images/item-17.jpg"
+      ],
+      "root_category_id": 0,
+      "num_likes": 0,
+      "num_comments": 0,
+      "created": 1782276565,
+      "updated": 1782628912,
+      "item_category": null,
+      "item_category_ntiers": {
+        "id": 7381,
+        "name": "けん玉",
+        "parent_category_id": 770,
+        "parent_category_name": "スポーツトイ・アクショントイ",
+        "root_category_id": 1328,
+        "root_category_name": "ゲーム・おもちゃ・グッズ"
+      },
+      "parent_categories_ntiers": [
+        {
+          "id": 1328,
+          "name": "ゲーム・おもちゃ・グッズ"
+        },
+        {
+          "id": 83,
+          "name": "おもちゃ"
+        },
+        {
+          "id": 770,
+          "name": "スポーツトイ・アクショントイ"
+        }
+      ],
+      "shipping_from_area": {
+        "id": 31,
+        "name": "鳥取県"
+      },
+      "shipping_method_id": 17,
+      "pager_id": 5767295678,
+      "liked": false,
+      "item_pv": 0,
+      "recent_item_pv": 0,
+      "transaction_evidence": {
+        "status": "done"
+      },
+      "is_no_price": 14000,
+      "is_archived": false,
+      "is_url_limited": false
+    },
+    {
+      "id": "m9000000008",
+      "seller": {
+        "id": "example_seller_id",
+        "name": "example_seller"
+      },
+      "status": "sold_out",
+      "name": "测试商品 30",
+      "price": 14500,
+      "thumbnails": [
+        "https://example.com/images/item-8.jpg"
+      ],
+      "root_category_id": 0,
+      "num_likes": 0,
+      "num_comments": 0,
+      "created": 1781982266,
+      "updated": 1783824124,
+      "item_category": null,
+      "item_category_ntiers": {
+        "id": 7381,
+        "name": "けん玉",
+        "parent_category_id": 770,
+        "parent_category_name": "スポーツトイ・アクショントイ",
+        "root_category_id": 1328,
+        "root_category_name": "ゲーム・おもちゃ・グッズ"
+      },
+      "parent_categories_ntiers": [
+        {
+          "id": 1328,
+          "name": "ゲーム・おもちゃ・グッズ"
+        },
+        {
+          "id": 83,
+          "name": "おもちゃ"
+        },
+        {
+          "id": 770,
+          "name": "スポーツトイ・アクショントイ"
+        }
+      ],
+      "shipping_from_area": {
+        "id": 31,
+        "name": "鳥取県"
+      },
+      "shipping_method_id": 17,
+      "pager_id": 5766412781,
+      "liked": false,
+      "item_pv": 0,
+      "recent_item_pv": 0,
+      "transaction_evidence": {
+        "status": "done"
+      },
+      "is_no_price": 15000,
+      "is_archived": false,
+      "is_url_limited": false
+    },
+    {
+      "id": "m9000000013",
+      "seller": {
+        "id": "example_seller_id",
+        "name": "example_seller"
+      },
+      "status": "sold_out",
+      "name": "测试商品 11",
+      "price": 15500,
+      "thumbnails": [
+        "https://example.com/images/item-13.jpg"
+      ],
+      "root_category_id": 0,
+      "num_likes": 0,
+      "num_comments": 0,
+      "created": 1781982262,
+      "updated": 1782314472,
+      "item_category": null,
+      "item_category_ntiers": {
+        "id": 7381,
+        "name": "けん玉",
+        "parent_category_id": 770,
+        "parent_category_name": "スポーツトイ・アクショントイ",
+        "root_category_id": 1328,
+        "root_category_name": "ゲーム・おもちゃ・グッズ"
+      },
+      "parent_categories_ntiers": [
+        {
+          "id": 1328,
+          "name": "ゲーム・おもちゃ・グッズ"
+        },
+        {
+          "id": 83,
+          "name": "おもちゃ"
+        },
+        {
+          "id": 770,
+          "name": "スポーツトイ・アクショントイ"
+        }
+      ],
+      "shipping_from_area": {
+        "id": 31,
+        "name": "鳥取県"
+      },
+      "shipping_method_id": 17,
+      "pager_id": 5766412769,
+      "liked": false,
+      "item_pv": 0,
+      "recent_item_pv": 0,
+      "transaction_evidence": {
+        "status": "done"
+      },
+      "is_no_price": 16000,
+      "is_archived": false,
+      "is_url_limited": false
+    },
+    {
+      "id": "m9000000004",
+      "seller": {
+        "id": "example_seller_id",
+        "name": "example_seller"
+      },
+      "status": "sold_out",
+      "name": "测试商品 29",
+      "price": 16500,
+      "thumbnails": [
+        "https://example.com/images/item-4.jpg"
+      ],
+      "root_category_id": 0,
+      "num_likes": 0,
+      "num_comments": 0,
+      "created": 1781982256,
+      "updated": 1782696802,
+      "item_category": null,
+      "item_category_ntiers": {
+        "id": 7381,
+        "name": "けん玉",
+        "parent_category_id": 770,
+        "parent_category_name": "スポーツトイ・アクショントイ",
+        "root_category_id": 1328,
+        "root_category_name": "ゲーム・おもちゃ・グッズ"
+      },
+      "parent_categories_ntiers": [
+        {
+          "id": 1328,
+          "name": "ゲーム・おもちゃ・グッズ"
+        },
+        {
+          "id": 83,
+          "name": "おもちゃ"
+        },
+        {
+          "id": 770,
+          "name": "スポーツトイ・アクショントイ"
+        }
+      ],
+      "shipping_from_area": {
+        "id": 31,
+        "name": "鳥取県"
+      },
+      "shipping_method_id": 17,
+      "pager_id": 5766412751,
+      "liked": false,
+      "item_pv": 0,
+      "recent_item_pv": 0,
+      "transaction_evidence": {
+        "status": "done"
+      },
+      "is_no_price": 17000,
+      "is_archived": false,
+      "is_url_limited": false
+    },
+    {
+      "id": "m9000000029",
+      "seller": {
+        "id": "example_seller_id",
+        "name": "example_seller"
+      },
+      "status": "sold_out",
+      "name": "测试商品 26",
+      "price": 17500,
+      "thumbnails": [
+        "https://example.com/images/item-29.jpg"
+      ],
+      "root_category_id": 0,
+      "num_likes": 0,
+      "num_comments": 0,
+      "created": 1781742591,
+      "updated": 1782044705,
+      "item_category": null,
+      "item_category_ntiers": {
+        "id": 7381,
+        "name": "けん玉",
+        "parent_category_id": 770,
+        "parent_category_name": "スポーツトイ・アクショントイ",
+        "root_category_id": 1328,
+        "root_category_name": "ゲーム・おもちゃ・グッズ"
+      },
+      "parent_categories_ntiers": [
+        {
+          "id": 1328,
+          "name": "ゲーム・おもちゃ・グッズ"
+        },
+        {
+          "id": 83,
+          "name": "おもちゃ"
+        },
+        {
+          "id": 770,
+          "name": "スポーツトイ・アクショントイ"
+        }
+      ],
+      "shipping_from_area": {
+        "id": 31,
+        "name": "鳥取県"
+      },
+      "shipping_method_id": 17,
+      "pager_id": 5765693756,
+      "liked": false,
+      "item_pv": 0,
+      "recent_item_pv": 0,
+      "transaction_evidence": {
+        "status": "done"
+      },
+      "is_no_price": 18000,
+      "is_archived": false,
+      "is_url_limited": false
+    },
+    {
+      "id": "m9000000006",
+      "seller": {
+        "id": "example_seller_id",
+        "name": "example_seller"
+      },
+      "status": "sold_out",
+      "name": "测试商品 17",
+      "price": 18500,
+      "thumbnails": [
+        "https://example.com/images/item-6.jpg"
+      ],
+      "root_category_id": 0,
+      "num_likes": 0,
+      "num_comments": 0,
+      "created": 1781623466,
+      "updated": 1783408786,
+      "item_category": null,
+      "item_category_ntiers": {
+        "id": 1492,
+        "name": "ショルダーバッグ",
+        "parent_category_id": 214,
+        "parent_category_name": "ショルダーバッグ",
+        "root_category_id": 3088,
+        "root_category_name": "ファッション"
+      },
+      "parent_categories_ntiers": [
+        {
+          "id": 3088,
+          "name": "ファッション"
+        },
+        {
+          "id": 1,
+          "name": "レディース"
+        },
+        {
+          "id": 20,
+          "name": "バッグ"
+        },
+        {
+          "id": 214,
+          "name": "ショルダーバッグ"
+        }
+      ],
+      "item_brand": {
+        "id": 1250,
+        "name": "UNIQLO",
+        "sub_name": "UNIQLO"
+      },
+      "shipping_from_area": {
+        "id": 31,
+        "name": "鳥取県"
+      },
+      "shipping_method_id": 17,
+      "pager_id": 5765336381,
+      "liked": false,
+      "item_pv": 0,
+      "recent_item_pv": 0,
+      "transaction_evidence": {
+        "status": "done"
+      },
+      "is_no_price": 19000,
+      "is_archived": false,
+      "is_url_limited": false
+    },
+    {
+      "id": "m9000000007",
+      "seller": {
+        "id": "example_seller_id",
+        "name": "example_seller"
+      },
+      "status": "sold_out",
+      "name": "测试商品 18",
+      "price": 19500,
+      "thumbnails": [
+        "https://example.com/images/item-7.jpg"
+      ],
+      "root_category_id": 0,
+      "num_likes": 0,
+      "num_comments": 0,
+      "created": 1781599910,
+      "updated": 1782547577,
+      "item_category": null,
+      "item_category_ntiers": {
+        "id": 1723,
+        "name": "ワイドパンツ・イージーパンツ",
+        "parent_category_id": 32,
+        "parent_category_name": "パンツ",
+        "root_category_id": 3088,
+        "root_category_name": "ファッション"
+      },
+      "parent_categories_ntiers": [
+        {
+          "id": 3088,
+          "name": "ファッション"
+        },
+        {
+          "id": 2,
+          "name": "メンズ"
+        },
+        {
+          "id": 32,
+          "name": "パンツ"
+        }
+      ],
+      "item_brand": {
+        "id": 1250,
+        "name": "UNIQLO",
+        "sub_name": "UNIQLO"
+      },
+      "shipping_from_area": {
+        "id": 31,
+        "name": "鳥取県"
+      },
+      "shipping_method_id": 17,
+      "pager_id": 5765265713,
+      "liked": false,
+      "item_pv": 0,
+      "recent_item_pv": 0,
+      "transaction_evidence": {
+        "status": "done"
+      },
+      "is_no_price": 20000,
+      "is_archived": false,
+      "is_url_limited": false
+    },
+    {
+      "id": "m9000000014",
+      "seller": {
+        "id": "example_seller_id",
+        "name": "example_seller"
+      },
+      "status": "sold_out",
+      "name": "测试商品 22",
+      "price": 20500,
+      "thumbnails": [
+        "https://example.com/images/item-14.jpg"
+      ],
+      "root_category_id": 0,
+      "num_likes": 0,
+      "num_comments": 0,
+      "created": 1781438793,
+      "updated": 1782372026,
+      "item_category": null,
+      "item_category_ntiers": {
+        "id": 980,
+        "name": "その他",
+        "parent_category_id": 745,
+        "parent_category_name": "キャラクターグッズ",
+        "root_category_id": 1328,
+        "root_category_name": "ゲーム・おもちゃ・グッズ"
+      },
+      "parent_categories_ntiers": [
+        {
+          "id": 1328,
+          "name": "ゲーム・おもちゃ・グッズ"
+        },
+        {
+          "id": 745,
+          "name": "キャラクターグッズ"
+        }
+      ],
+      "shipping_from_area": {
+        "id": 31,
+        "name": "鳥取県"
+      },
+      "shipping_method_id": 17,
+      "pager_id": 5764782362,
+      "liked": false,
+      "item_pv": 0,
+      "recent_item_pv": 0,
+      "transaction_evidence": {
+        "status": "done"
+      },
+      "is_no_price": 21000,
+      "is_archived": false,
+      "is_url_limited": false
+    },
+    {
+      "id": "m9000000009",
+      "seller": {
+        "id": "example_seller_id",
+        "name": "example_seller"
+      },
+      "status": "sold_out",
+      "name": "测试商品 15",
+      "price": 21500,
+      "thumbnails": [
+        "https://example.com/images/item-9.jpg"
+      ],
+      "root_category_id": 0,
+      "num_likes": 0,
+      "num_comments": 0,
+      "created": 1781206458,
+      "updated": 1782902236,
+      "item_category": null,
+      "item_category_ntiers": {
+        "id": 7381,
+        "name": "けん玉",
+        "parent_category_id": 770,
+        "parent_category_name": "スポーツトイ・アクショントイ",
+        "root_category_id": 1328,
+        "root_category_name": "ゲーム・おもちゃ・グッズ"
+      },
+      "parent_categories_ntiers": [
+        {
+          "id": 1328,
+          "name": "ゲーム・おもちゃ・グッズ"
+        },
+        {
+          "id": 83,
+          "name": "おもちゃ"
+        },
+        {
+          "id": 770,
+          "name": "スポーツトイ・アクショントイ"
+        }
+      ],
+      "shipping_from_area": {
+        "id": 31,
+        "name": "鳥取県"
+      },
+      "shipping_method_id": 17,
+      "pager_id": 5764085357,
+      "liked": false,
+      "item_pv": 0,
+      "recent_item_pv": 0,
+      "transaction_evidence": {
+        "status": "done"
+      },
+      "is_no_price": 22000,
+      "is_archived": false,
+      "is_url_limited": false
+    },
+    {
+      "id": "m9000000019",
+      "seller": {
+        "id": "example_seller_id",
+        "name": "example_seller"
+      },
+      "status": "sold_out",
+      "name": "测试商品 2",
+      "price": 22500,
+      "thumbnails": [
+        "https://example.com/images/item-19.jpg"
+      ],
+      "root_category_id": 0,
+      "num_likes": 0,
+      "num_comments": 0,
+      "created": 1781206142,
+      "updated": 1781781986,
+      "item_category": null,
+      "item_category_ntiers": {
+        "id": 7381,
+        "name": "けん玉",
+        "parent_category_id": 770,
+        "parent_category_name": "スポーツトイ・アクショントイ",
+        "root_category_id": 1328,
+        "root_category_name": "ゲーム・おもちゃ・グッズ"
+      },
+      "parent_categories_ntiers": [
+        {
+          "id": 1328,
+          "name": "ゲーム・おもちゃ・グッズ"
+        },
+        {
+          "id": 83,
+          "name": "おもちゃ"
+        },
+        {
+          "id": 770,
+          "name": "スポーツトイ・アクショントイ"
+        }
+      ],
+      "shipping_from_area": {
+        "id": 31,
+        "name": "鳥取県"
+      },
+      "shipping_method_id": 17,
+      "pager_id": 5764084409,
+      "liked": false,
+      "item_pv": 0,
+      "recent_item_pv": 0,
+      "transaction_evidence": {
+        "status": "done"
+      },
+      "is_no_price": 23000,
+      "is_archived": false,
+      "is_url_limited": false
+    },
+    {
+      "id": "m9000000001",
+      "seller": {
+        "id": "example_seller_id",
+        "name": "example_seller"
+      },
+      "status": "sold_out",
+      "name": "测试商品 23",
+      "price": 23500,
+      "thumbnails": [
+        "https://example.com/images/item-1.jpg"
+      ],
+      "root_category_id": 0,
+      "num_likes": 0,
+      "num_comments": 0,
+      "created": 1781108404,
+      "updated": 1781364020,
+      "item_category": null,
+      "item_category_ntiers": {
+        "id": 10117,
+        "name": "タレント写真集",
+        "parent_category_id": 72,
+        "parent_category_name": "本",
+        "root_category_id": 5,
+        "root_category_name": "本・雑誌・漫画"
+      },
+      "parent_categories_ntiers": [
+        {
+          "id": 5,
+          "name": "本・雑誌・漫画"
+        },
+        {
+          "id": 72,
+          "name": "本"
+        }
+      ],
+      "shipping_from_area": {
+        "id": 31,
+        "name": "鳥取県"
+      },
+      "shipping_method_id": 17,
+      "pager_id": 5763791195,
+      "liked": false,
+      "item_pv": 0,
+      "recent_item_pv": 0,
+      "transaction_evidence": {
+        "status": "done"
+      },
+      "is_no_price": 24000,
+      "is_archived": false,
+      "is_url_limited": false
+    },
+    {
+      "id": "m9000000003",
+      "seller": {
+        "id": "example_seller_id",
+        "name": "example_seller"
+      },
+      "status": "sold_out",
+      "name": "测试商品 5",
+      "price": 24500,
+      "thumbnails": [
+        "https://example.com/images/item-3.jpg"
+      ],
+      "root_category_id": 0,
+      "num_likes": 0,
+      "num_comments": 0,
+      "created": 1781081460,
+      "updated": 1781718268,
+      "item_category": null,
+      "item_category_ntiers": {
+        "id": 345,
+        "name": "スニーカー",
+        "parent_category_id": 33,
+        "parent_category_name": "靴",
+        "root_category_id": 3088,
+        "root_category_name": "ファッション"
+      },
+      "parent_categories_ntiers": [
+        {
+          "id": 3088,
+          "name": "ファッション"
+        },
+        {
+          "id": 2,
+          "name": "メンズ"
+        },
+        {
+          "id": 33,
+          "name": "靴"
+        }
+      ],
+      "shipping_from_area": {
+        "id": 31,
+        "name": "鳥取県"
+      },
+      "shipping_method_id": 17,
+      "pager_id": 5763710363,
+      "liked": false,
+      "item_pv": 0,
+      "recent_item_pv": 0,
+      "transaction_evidence": {
+        "status": "done"
+      },
+      "is_no_price": 25000,
+      "is_archived": false,
+      "is_url_limited": false
+    },
+    {
+      "id": "m9000000015",
+      "seller": {
+        "id": "example_seller_id",
+        "name": "example_seller"
+      },
+      "status": "on_sale",
+      "name": "测试商品 21",
+      "price": 25500,
+      "thumbnails": [
+        "https://example.com/images/item-15.jpg"
+      ],
+      "root_category_id": 0,
+      "num_likes": 0,
+      "num_comments": 0,
+      "created": 1780983273,
+      "updated": 1784674911,
+      "item_category": null,
+      "item_category_ntiers": {
+        "id": 7381,
+        "name": "けん玉",
+        "parent_category_id": 770,
+        "parent_category_name": "スポーツトイ・アクショントイ",
+        "root_category_id": 1328,
+        "root_category_name": "ゲーム・おもちゃ・グッズ"
+      },
+      "parent_categories_ntiers": [
+        {
+          "id": 1328,
+          "name": "ゲーム・おもちゃ・グッズ"
+        },
+        {
+          "id": 83,
+          "name": "おもちゃ"
+        },
+        {
+          "id": 770,
+          "name": "スポーツトイ・アクショントイ"
+        }
+      ],
+      "shipping_from_area": {
+        "id": 31,
+        "name": "鳥取県"
+      },
+      "shipping_method_id": 17,
+      "pager_id": 5763415802,
+      "liked": false,
+      "item_pv": 0,
+      "recent_item_pv": 0,
+      "is_no_price": 26000,
+      "is_archived": false,
+      "is_url_limited": false
+    },
+    {
+      "id": "m9000000011",
+      "seller": {
+        "id": "example_seller_id",
+        "name": "example_seller"
+      },
+      "status": "sold_out",
+      "name": "测试商品 16",
+      "price": 26500,
+      "thumbnails": [
+        "https://example.com/images/item-11.jpg"
+      ],
+      "root_category_id": 0,
+      "num_likes": 0,
+      "num_comments": 0,
+      "created": 1780982182,
+      "updated": 1782494331,
+      "item_category": null,
+      "item_category_ntiers": {
+        "id": 7381,
+        "name": "けん玉",
+        "parent_category_id": 770,
+        "parent_category_name": "スポーツトイ・アクショントイ",
+        "root_category_id": 1328,
+        "root_category_name": "ゲーム・おもちゃ・グッズ"
+      },
+      "parent_categories_ntiers": [
+        {
+          "id": 1328,
+          "name": "ゲーム・おもちゃ・グッズ"
+        },
+        {
+          "id": 83,
+          "name": "おもちゃ"
+        },
+        {
+          "id": 770,
+          "name": "スポーツトイ・アクショントイ"
+        }
+      ],
+      "shipping_from_area": {
+        "id": 31,
+        "name": "鳥取県"
+      },
+      "shipping_method_id": 17,
+      "pager_id": 5763412529,
+      "liked": false,
+      "item_pv": 0,
+      "recent_item_pv": 0,
+      "transaction_evidence": {
+        "status": "done"
+      },
+      "is_no_price": 27000,
+      "is_archived": false,
+      "is_url_limited": false
+    },
+    {
+      "id": "m9000000018",
+      "seller": {
+        "id": "example_seller_id",
+        "name": "example_seller"
+      },
+      "status": "sold_out",
+      "name": "测试商品 4",
+      "price": 27500,
+      "thumbnails": [
+        "https://example.com/images/item-18.jpg"
+      ],
+      "root_category_id": 0,
+      "num_likes": 0,
+      "num_comments": 0,
+      "created": 1780978272,
+      "updated": 1782289446,
+      "item_category": null,
+      "item_category_ntiers": {
+        "id": 7381,
+        "name": "けん玉",
+        "parent_category_id": 770,
+        "parent_category_name": "スポーツトイ・アクショントイ",
+        "root_category_id": 1328,
+        "root_category_name": "ゲーム・おもちゃ・グッズ"
+      },
+      "parent_categories_ntiers": [
+        {
+          "id": 1328,
+          "name": "ゲーム・おもちゃ・グッズ"
+        },
+        {
+          "id": 83,
+          "name": "おもちゃ"
+        },
+        {
+          "id": 770,
+          "name": "スポーツトイ・アクショントイ"
+        }
+      ],
+      "shipping_from_area": {
+        "id": 31,
+        "name": "鳥取県"
+      },
+      "shipping_method_id": 17,
+      "pager_id": 5763400799,
+      "liked": false,
+      "item_pv": 0,
+      "recent_item_pv": 0,
+      "transaction_evidence": {
+        "status": "done"
+      },
+      "is_no_price": 28000,
+      "is_archived": false,
+      "is_url_limited": false
+    },
+    {
+      "id": "m9000000010",
+      "seller": {
+        "id": "example_seller_id",
+        "name": "example_seller"
+      },
+      "status": "sold_out",
+      "name": "测试商品 3",
+      "price": 28500,
+      "thumbnails": [
+        "https://example.com/images/item-10.jpg"
+      ],
+      "root_category_id": 0,
+      "num_likes": 0,
+      "num_comments": 0,
+      "created": 1780968245,
+      "updated": 1783311466,
+      "item_category": null,
+      "item_category_ntiers": {
+        "id": 679,
+        "name": "その他",
+        "parent_category_id": 72,
+        "parent_category_name": "本",
+        "root_category_id": 5,
+        "root_category_name": "本・雑誌・漫画"
+      },
+      "parent_categories_ntiers": [
+        {
+          "id": 5,
+          "name": "本・雑誌・漫画"
+        },
+        {
+          "id": 72,
+          "name": "本"
+        }
+      ],
+      "shipping_from_area": {
+        "id": 31,
+        "name": "鳥取県"
+      },
+      "shipping_method_id": 17,
+      "pager_id": 5763370718,
+      "liked": false,
+      "item_pv": 0,
+      "recent_item_pv": 0,
+      "transaction_evidence": {
+        "status": "done"
+      },
+      "is_no_price": 29000,
+      "is_archived": false,
+      "is_url_limited": false
+    },
+    {
+      "id": "m9000000025",
+      "seller": {
+        "id": "example_seller_id",
+        "name": "example_seller"
+      },
+      "status": "sold_out",
+      "name": "测试商品 20",
+      "price": 29500,
+      "thumbnails": [
+        "https://example.com/images/item-25.jpg"
+      ],
+      "root_category_id": 0,
+      "num_likes": 0,
+      "num_comments": 0,
+      "created": 1780966512,
+      "updated": 1781693215,
+      "item_category": null,
+      "item_category_ntiers": {
+        "id": 7381,
+        "name": "けん玉",
+        "parent_category_id": 770,
+        "parent_category_name": "スポーツトイ・アクショントイ",
+        "root_category_id": 1328,
+        "root_category_name": "ゲーム・おもちゃ・グッズ"
+      },
+      "parent_categories_ntiers": [
+        {
+          "id": 1328,
+          "name": "ゲーム・おもちゃ・グッズ"
+        },
+        {
+          "id": 83,
+          "name": "おもちゃ"
+        },
+        {
+          "id": 770,
+          "name": "スポーツトイ・アクショントイ"
+        }
+      ],
+      "shipping_from_area": {
+        "id": 31,
+        "name": "鳥取県"
+      },
+      "shipping_method_id": 17,
+      "pager_id": 5763365519,
+      "liked": false,
+      "item_pv": 0,
+      "recent_item_pv": 0,
+      "transaction_evidence": {
+        "status": "done"
+      },
+      "is_no_price": 30000,
+      "is_archived": false,
+      "is_url_limited": false
+    },
+    {
+      "id": "m9000000030",
+      "seller": {
+        "id": "example_seller_id",
+        "name": "example_seller"
+      },
+      "status": "sold_out",
+      "name": "测试商品 13",
+      "price": 30500,
+      "thumbnails": [
+        "https://example.com/images/item-30.jpg"
+      ],
+      "root_category_id": 0,
+      "num_likes": 0,
+      "num_comments": 0,
+      "created": 1780966158,
+      "updated": 1782231798,
+      "item_category": null,
+      "item_category_ntiers": {
+        "id": 7381,
+        "name": "けん玉",
+        "parent_category_id": 770,
+        "parent_category_name": "スポーツトイ・アクショントイ",
+        "root_category_id": 1328,
+        "root_category_name": "ゲーム・おもちゃ・グッズ"
+      },
+      "parent_categories_ntiers": [
+        {
+          "id": 1328,
+          "name": "ゲーム・おもちゃ・グッズ"
+        },
+        {
+          "id": 83,
+          "name": "おもちゃ"
+        },
+        {
+          "id": 770,
+          "name": "スポーツトイ・アクショントイ"
+        }
+      ],
+      "shipping_from_area": {
+        "id": 31,
+        "name": "鳥取県"
+      },
+      "shipping_method_id": 17,
+      "pager_id": 5763364457,
+      "liked": false,
+      "item_pv": 0,
+      "recent_item_pv": 0,
+      "transaction_evidence": {
+        "status": "done"
+      },
+      "is_no_price": 31000,
+      "is_archived": false,
+      "is_url_limited": false
+    }
+  ]
+}

@@ -167,3 +167,33 @@ venv/bin/python -m unittest tests.test_seller_monitor tests.test_seller_monitor_
 6. 允许离线保存用于测试的页面 HTML，以及其中可脱敏的 seller/item 标识。
 
 在得到明确许可前，不访问真实平台，也不发送真实微信消息。
+
+## Mercari 受控捕获结论（2026-07-23）
+
+开发阶段使用 `scripts/capture_mercari_profile.py` 对一个明确授权的卖家主页进行过一次无登录 Playwright 导航。脚本使用全新临时浏览器配置，不复用或保存 Cookie/localStorage，不打开商品详情，不滚动或翻页；图片、字体、媒体和分析请求被阻止。原始候选只保存在仓库外，仓库内仅保留递归脱敏通过的 JSON fixture。
+
+首屏商品来自匿名 XHR REST 响应：
+
+```text
+GET https://api.mercari.jp/items/get_items
+query names: limit, seller_id, status, with_auction
+```
+
+页面还自然产生了一个同结构请求，额外包含 `exclude_archived_item`。响应顶层为 `result`、`meta`、`data`；首屏包含 30 个商品对象，`meta.has_next=true`。可离线解析的字段包括 `id`、`name`、`price`、`thumbnails`、`status`、`seller.id`。已观察到的状态枚举为 `on_sale`、`sold_out`、`trading`。
+
+重要限制：
+
+- 请求没有 Cookie、Authorization 或 CSRF header，但包含由页面上下文生成的 `dpop` header 和 `x-platform`；没有主动重放接口，因此尚不能认定可由普通 HTTP client 匿名复现。
+- 首屏响应只有 `has_next`，没有明确 next cursor、总数或下一页 token。不能猜测 `pager_id` 就是 cursor。
+- 捕获商品对象没有明确 listing type、auction、current bid、start price 或 buyout 字段；`price` 和 `is_no_price` 不能作为拍卖判据。
+- `parse_items_response()` 因此对真实 fixture 返回 `listing_type="unknown"`。只有响应出现明确 `is_auction`、sale type 或 auction 对象时才映射为 `auction`/`fixed`。
+- 首屏 `has_next=true` 时 parser 必定返回 `complete=False`。缺失稳定 item ID、重复 ID、空响应或分页信息未知也不能完整。
+- 当前数据库约束只接受 `fixed`/`auction`，因此正式 `fetch_seller()` 仍未启用，不能执行完整 bootstrap。需要先取得可靠拍卖类型和分页机制，或经审查扩展数据模型；不得静默把 unknown 当 fixed。
+
+离线 fixture：
+
+```text
+tests/fixtures/seller_monitor/mercari/items_page_1_sanitized.json
+```
+
+fixture 保留真实字段层级、类型、状态和 `has_next`，但 seller ID、item ID、标题、图片 URL、价格和卖家名称均已替换；token、实验、追踪和个人字段被删除或脱敏。递归检查要求真实 seller ID、全部真实 item ID/标题/图片 URL、个人值、JWT 形态和非 `example.com` 图片域名残留均为 0。
