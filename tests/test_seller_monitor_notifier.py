@@ -12,7 +12,14 @@ from seller_monitor.main import add_seller_interactive, main
 from seller_monitor.config import MonitorConfig
 from seller_monitor.models import FetchResult, ListingSnapshot, MonitoredSeller, NotificationResult
 from seller_monitor.monitor import SellerMonitorService
-from seller_monitor.notifier import PushPlusNotifier, notification_title, render_notification_html, write_preview
+from seller_monitor.notifier import (
+    REAL_ITEM_TEST_DISCLAIMER,
+    REAL_ITEM_TEST_TITLE,
+    PushPlusNotifier,
+    notification_title,
+    render_notification_html,
+    write_preview,
+)
 from seller_monitor.platforms import default_adapters
 from seller_monitor.repository import SellerMonitorRepository
 
@@ -85,6 +92,28 @@ class NotifierOfflineTests(unittest.TestCase):
         session = FakeSession(error=requests.ReadTimeout("offline timeout"))
         result = PushPlusNotifier("fake-token", session=session).send(PAYLOAD)
         self.assertEqual("delivery_unknown", result.status)
+
+    def test_real_item_display_test_uses_explicit_title_and_disclaimer(self):
+        session = FakeSession(FakeResponse())
+        payload = {
+            **PAYLOAD,
+            "event_type": "真实商品展示测试",
+            "listing_type": "unknown",
+            "image_url": "https://images.example.com/display.jpg",
+            "item_url": "https://jp.mercari.com/item/m00000000001",
+        }
+        result = PushPlusNotifier("fake-token", session=session).send_test_notification(
+            payload,
+            title=REAL_ITEM_TEST_TITLE,
+            disclaimer=REAL_ITEM_TEST_DISCLAIMER,
+        )
+        self.assertEqual("accepted", result.status)
+        self.assertEqual(1, len(session.calls))
+        body = session.calls[0][1]["json"]
+        self.assertEqual(REAL_ITEM_TEST_TITLE, body["title"])
+        self.assertIn(REAL_ITEM_TEST_TITLE, body["content"])
+        self.assertIn(REAL_ITEM_TEST_DISCLAIMER, body["content"])
+        self.assertIn('<img src="https://images.example.com/display.jpg"', body["content"])
 
     def test_preview_writes_html_without_network(self):
         with tempfile.TemporaryDirectory() as directory:

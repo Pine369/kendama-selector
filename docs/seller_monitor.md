@@ -57,6 +57,7 @@ venv/bin/python -m seller_monitor.main --bootstrap
 venv/bin/python -m seller_monitor.main --once
 venv/bin/python -m seller_monitor.main --preview-notification
 venv/bin/python -m seller_monitor.main --test-notification
+venv/bin/python -m seller_monitor.main --test-notification-from-seller
 venv/bin/python -m seller_monitor.main --add-seller "卖家主页 URL 或包含主页 URL 的分享文本"
 ```
 
@@ -67,6 +68,8 @@ venv/bin/python -m seller_monitor.main --add-seller "卖家主页 URL 或包含�
 `--test-notification` 只读取 `--env` 指定的独立环境文件，确认 `PUSHPLUS_TOKEN` 非空但不显示其值。命令先展示 Mercari 合成消息，只有人工输入 `y` 或 `yes` 才调用 PushPlus 一次；其他输入均取消。它不读取卖家 YAML、不访问平台、不启动监控器，也不创建或修改数据库及正式通知事件。测试发送不自动重试。
 
 Windows CLI 不要求执行 `chcp 65001` 或设置永久环境变量。UTF-8 输出流正常显示 `¥8,000`；当 stdout/stderr 使用无法编码半角日元符号的 GBK/cp936 严格模式时，控制台自动降级为 `JPY 8,000`，微信 HTML 内容仍保留 `¥8,000`。重定向、`StringIO` 和不支持 `reconfigure()` 的流使用同一安全输出边界。
+
+`--test-notification-from-seller` 是一次性真实商品展示验收入口。它只允许配置中恰好一个启用且未删除的 Mercari 卖家，使用正式 adapter 获取一次完整在售列表，并要求 `FetchResult.complete=True`、`has_next=False`。命令选择第一件同时具有 `on_sale` 状态、图片、标题、有效价格和商品链接的商品，先显示图片域名等摘要并要求 `y/yes` 确认，然后最多发送一次明确标记为测试的消息。它不实例化监控 service 或 repository，不修改数据库、基线、状态文件或正式通知事件，也不自动重试。
 
 ## 数据库
 

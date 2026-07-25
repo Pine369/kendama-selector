@@ -17,6 +17,10 @@ from seller_monitor.models import NotificationResult
 PUSHPLUS_ENDPOINT = "https://www.pushplus.plus/send"
 PREVIEW_TITLE = "【测试｜卖家监控】"
 TEST_NOTIFICATION_DISCLAIMER = "这是一条系统连接测试消息，不代表真实商品上新。"
+REAL_ITEM_TEST_TITLE = "【测试｜真实商品展示】"
+REAL_ITEM_TEST_DISCLAIMER = (
+    "这是一条真实商品展示测试消息，不代表该商品刚刚上架，也不会写入正式监控事件。"
+)
 PREVIEW_PAYLOAD = {
     "event_type": "new_listing",
     "platform": "mercari",
@@ -128,14 +132,20 @@ class PushPlusNotifier:
     def send(self, payload: dict) -> NotificationResult:
         return self._send_html(notification_title(payload), render_notification_html(payload))
 
-    def send_test_notification(self, payload: dict | None = None) -> NotificationResult:
+    def send_test_notification(
+        self,
+        payload: dict | None = None,
+        *,
+        title: str = PREVIEW_TITLE,
+        disclaimer: str = TEST_NOTIFICATION_DISCLAIMER,
+    ) -> NotificationResult:
         test_payload = payload or PREVIEW_PAYLOAD
         content = render_notification_html(
             test_payload,
-            preview_title=PREVIEW_TITLE,
-            footer=TEST_NOTIFICATION_DISCLAIMER,
+            preview_title=title,
+            footer=disclaimer,
         )
-        return self._send_html(PREVIEW_TITLE, content)
+        return self._send_html(title, content)
 
     def _send_html(self, title: str, content: str) -> NotificationResult:
         body = {

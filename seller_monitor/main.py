@@ -7,8 +7,10 @@ import json
 import logging
 import re
 import sys
+from datetime import datetime
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import yaml
 
@@ -25,6 +27,8 @@ from seller_monitor.monitor import SellerMonitorService
 from seller_monitor.notifier import (
     PREVIEW_PAYLOAD,
     PREVIEW_TITLE,
+    REAL_ITEM_TEST_DISCLAIMER,
+    REAL_ITEM_TEST_TITLE,
     TEST_NOTIFICATION_DISCLAIMER,
     PushPlusNotifier,
     write_preview,
@@ -80,6 +84,11 @@ def build_parser() -> argparse.ArgumentParser:
     action.add_argument("--add-seller", metavar="URL_OR_SHARE_TEXT", help="从主页 URL 或分享文本添加卖家")
     action.add_argument("--preview-notification", action="store_true", help="只生成本地通知 HTML")
     action.add_argument("--test-notification", action="store_true", help="确认后发送一条合成 PushPlus 测试消息")
+    action.add_argument(
+        "--test-notification-from-seller",
+        action="store_true",
+        help="确认后用唯一 Mercari 卖家的首件有效在售商品发送展示测试",
+    )
     parser.add_argument("--config", default=DEFAULT_CONFIG_PATH, help="监控 YAML 路径")
     parser.add_argument("--env", default=DEFAULT_ENV_PATH, help="独立环境变量文件路径")
     parser.add_argument("--preview-output", default="seller_monitor_notification_preview.html")
@@ -172,6 +181,19 @@ def run_monitor(config_path: str, env_path: str, mode: str) -> int:
     return 1 if summary.status == "failed" else 0
 
 
+_NOTIFICATION_STATUS_MESSAGES = {
+    "accepted": "accepted（PushPlus 已接受，不代表微信已送达）",
+    "rejected": "rejected（PushPlus 明确拒绝）",
+    "delivery_unknown": "delivery_unknown（结果未知，不会自动重试）",
+    "retryable_failure": "retryable_failure（连接前失败，本命令不会自动重试）",
+}
+
+
+def _report_test_notification_result(result, output_func) -> int:
+    output_func(f"测试通知结果：{_NOTIFICATION_STATUS_MESSAGES.get(result.status, result.status)}")
+    return 0 if result.status == "accepted" else 1
+
+
 def send_test_notification_interactive(
     env_path: str,
     *,
@@ -206,14 +228,136 @@ def send_test_notification_interactive(
         return 1
 
     result = PushPlusNotifier(token).send_test_notification(payload)
-    status_messages = {
-        "accepted": "accepted（PushPlus 已接受，不代表微信已送达）",
-        "rejected": "rejected（PushPlus 明确拒绝）",
-        "delivery_unknown": "delivery_unknown（结果未知，不会自动重试）",
-        "retryable_failure": "retryable_failure（连接前失败，本命令不会自动重试）",
+    return _report_test_notification_result(result, output_func)
+
+
+def _valid_http_url(value: str) -> bool:
+    if not isinstance(value, str):
+        return False
+    parsed = urlsplit(value)
+    return parsed.scheme in {"http", "https"} and bool(parsed.hostname)
+
+
+def _select_display_test_snapshot(snapshots):
+    for snapshot in snapshots:
+        platform_status = (snapshot.raw or {}).get("platform_status")
+        is_on_sale = snapshot.status == "on_sale" or (
+            snapshot.status == "active" and platform_status == "on_sale"
+        )
+        valid_price = (
+            isinstance(snapshot.current_price, int)
+            and not isinstance(snapshot.current_price, bool)
+            and snapshot.current_price > 0
+        )
+        if (
+            is_on_sale
+            and isinstance(snapshot.title, str)
+            and snapshot.title.strip()
+            and _valid_http_url(snapshot.image_url)
+            and _valid_http_url(snapshot.item_url)
+            and valid_price
+        ):
+            return snapshot
+    return None
+
+
+def send_test_notification_from_seller_interactive(
+    config_path: str,
+    env_path: str,
+    *,
+    adapters=None,
+    notifier_factory=None,
+    input_func=input,
+    output_func=safe_print,
+    now_func=None,
+) -> int:
+    config = load_config(config_path)
+    enabled_sellers = [seller for seller in config.sellers if seller.enabled and not seller.deleted_at]
+    if len(enabled_sellers) != 1:
+        output_func("错误：必须恰好配置一个启用且未删除的卖家；未发送测试消息。")
+        return 2
+    seller = enabled_sellers[0]
+    if seller.platform != "mercari":
+        output_func("错误：唯一启用卖家不是 Mercari；未发送测试消息。")
+        return 2
+
+    env_file = Path(env_path)
+    if not env_file.is_file():
+        output_func(f"错误：独立环境文件不存在：{env_file}")
+        return 2
+    token = pushplus_token(env_file)
+    if not token:
+        output_func("错误：seller_monitor.env 中未配置非空 PUSHPLUS_TOKEN。")
+        return 2
+
+    available_adapters = adapters if adapters is not None else default_adapters()
+    adapter = available_adapters.get("mercari")
+    if adapter is None:
+        output_func("错误：Mercari adapter 不可用；未发送测试消息。")
+        return 2
+    try:
+        fetch_result = adapter.fetch_seller(seller)
+    except Exception:
+        output_func("错误：Mercari 卖家商品获取失败；未发送测试消息。")
+        return 1
+
+    diagnostics = getattr(adapter, "last_diagnostics", None)
+    has_next = getattr(fetch_result, "has_next", None)
+    if has_next is None:
+        has_next = getattr(diagnostics, "has_next", None)
+    if has_next is True:
+        output_func("错误：Mercari 在售列表仍有下一页；未发送测试消息。")
+        return 1
+    if not fetch_result.complete:
+        output_func("错误：Mercari FetchResult.complete=False；未发送测试消息。")
+        return 1
+    if has_next is not False:
+        output_func("错误：无法确认 Mercari 在售列表已到最后一页；未发送测试消息。")
+        return 1
+
+    snapshot = _select_display_test_snapshot(fetch_result.snapshots)
+    if snapshot is None:
+        output_func("错误：没有同时具备在售状态、图片、标题、价格和链接的商品；未发送。")
+        return 1
+
+    observed_at = snapshot.observed_at
+    if not observed_at:
+        current_time = now_func() if now_func is not None else datetime.now().astimezone()
+        observed_at = current_time.isoformat(timespec="seconds")
+    payload = {
+        "event_type": "真实商品展示测试",
+        "platform": "mercari",
+        "seller_name": seller.seller_name,
+        "listing_type": snapshot.listing_type,
+        "title": snapshot.title,
+        "image_url": snapshot.image_url,
+        "item_url": snapshot.item_url,
+        "old_price": None,
+        "new_price": snapshot.current_price,
+        "observed_at": observed_at,
     }
-    output_func(f"测试通知结果：{status_messages.get(result.status, result.status)}")
-    return 0 if result.status == "accepted" else 1
+    image_domain = urlsplit(snapshot.image_url).hostname or "(未知域名)"
+    output_func("PUSHPLUS_TOKEN 已配置（值不会显示）。")
+    output_func("即将发送以下真实商品展示测试：")
+    output_func(REAL_ITEM_TEST_TITLE)
+    output_func(f"卖家：{seller.seller_name}")
+    output_func(f"商品：{snapshot.title}")
+    output_func(f"价格：¥{snapshot.current_price:,}")
+    output_func(f"图片域名：{image_domain}")
+    output_func(f"商品链接：{snapshot.item_url}")
+    output_func("数据库：不会读取或写入正式事件及商品表。")
+    output_func(REAL_ITEM_TEST_DISCLAIMER)
+    if input_func("确认发送一条真实商品展示测试消息？[y/N]: ").strip().lower() not in {"y", "yes"}:
+        output_func("已取消，未发送测试消息。")
+        return 1
+
+    factory = notifier_factory if notifier_factory is not None else PushPlusNotifier
+    result = factory(token).send_test_notification(
+        payload,
+        title=REAL_ITEM_TEST_TITLE,
+        disclaimer=REAL_ITEM_TEST_DISCLAIMER,
+    )
+    return _report_test_notification_result(result, output_func)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -231,6 +375,13 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.test_notification:
             return send_test_notification_interactive(args.env, input_func=input, output_func=safe_print)
+        if args.test_notification_from_seller:
+            return send_test_notification_from_seller_interactive(
+                args.config,
+                args.env,
+                input_func=input,
+                output_func=safe_print,
+            )
         return run_monitor(args.config, args.env, "bootstrap" if args.bootstrap else "once")
     except (FileNotFoundError, ValueError, yaml.YAMLError) as exc:
         safe_print(f"错误：{exc}")
