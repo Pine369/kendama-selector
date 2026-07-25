@@ -15,13 +15,26 @@ from seller_monitor.models import NotificationResult
 
 
 PUSHPLUS_ENDPOINT = "https://www.pushplus.plus/send"
+PREVIEW_TITLE = "【测试｜卖家监控】"
+PREVIEW_PAYLOAD = {
+    "event_type": "new_listing",
+    "platform": "mercari",
+    "seller_name": "测试卖家",
+    "listing_type": "unknown",
+    "title": "测试剑玉商品",
+    "image_url": "https://example.com/images/test-kendama.jpg",
+    "item_url": "https://example.com/items/test-item",
+    "old_price": None,
+    "new_price": 8000,
+    "observed_at": "2026-07-25 14:30:00 +08:00",
+}
 
 
 def _money(value: int | None) -> str:
     return "价格未知" if value is None else f"¥{value:,}"
 
 
-def render_notification_html(payload: dict) -> str:
+def render_notification_html(payload: dict, *, preview_title: str | None = None) -> str:
     event_labels = {
         "new_listing": "新上架",
         "fixed_price_drop": "降价",
@@ -63,12 +76,23 @@ def render_notification_html(payload: dict) -> str:
         if image_url else ""
     )
     item_url = html.escape(payload.get("item_url") or "", quote=True)
+    event_heading = f"【{html.escape(event_label)}｜{html.escape(platform_label)}】"
+    if preview_title:
+        document_title = html.escape(preview_title)
+        heading = (
+            f"<h1>{document_title}</h1>\n"
+            f"<p><strong>事件：</strong>{html.escape(event_label)}</p>\n"
+            f"<p><strong>平台：</strong>{html.escape(platform_label)}</p>"
+        )
+    else:
+        document_title = f"{html.escape(event_label)}｜{html.escape(platform_label)}"
+        heading = f"<h2>{event_heading}</h2>"
     return f"""<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
-<title>{html.escape(event_label)}｜{html.escape(platform_label)}</title></head>
+<title>{document_title}</title></head>
 <body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;line-height:1.6;color:#222">
 <div style="max-width:640px;margin:auto;padding:16px">
-<h2>【{html.escape(event_label)}｜{html.escape(platform_label)}】</h2>
+{heading}
 <p><strong>卖家：</strong>{html.escape(payload.get('seller_name') or '')}</p>
 <p><strong>类型：</strong>{listing_label}</p>
 <p><strong>商品：</strong>{html.escape(payload.get('title') or '')}</p>
@@ -138,20 +162,9 @@ class PushPlusNotifier:
 
 
 def write_preview(path: str | Path, payload: dict | None = None) -> Path:
-    preview = payload or {
-        "event_type": "fixed_price_drop",
-        "platform": "yahoo_auctions",
-        "seller_name": "测试卖家（不会发送）",
-        "listing_type": "auction",
-        "title": "剑玉商品通知预览",
-        "image_url": "https://placehold.co/800x600?text=Seller+Monitor+Preview",
-        "item_url": "https://example.invalid/item/preview",
-        "old_price": 8000,
-        "new_price": 6500,
-        "term_type": None,
-        "observed_at": "2026-07-22 14:30:00 +08:00",
-    }
+    preview = payload or PREVIEW_PAYLOAD
     output = Path(path)
     output.parent.mkdir(parents=True, exist_ok=True)
-    output.write_text(render_notification_html(preview), encoding="utf-8")
+    preview_title = PREVIEW_TITLE if payload is None else None
+    output.write_text(render_notification_html(preview, preview_title=preview_title), encoding="utf-8")
     return output

@@ -8,7 +8,7 @@ from unittest import mock
 import requests
 import yaml
 
-from seller_monitor.main import add_seller_interactive
+from seller_monitor.main import add_seller_interactive, main
 from seller_monitor.config import MonitorConfig
 from seller_monitor.models import FetchResult, ListingSnapshot, MonitoredSeller, NotificationResult
 from seller_monitor.monitor import SellerMonitorService
@@ -91,6 +91,68 @@ class NotifierOfflineTests(unittest.TestCase):
                 write_preview(output, PAYLOAD)
                 request.assert_not_called()
             self.assertIn("Su Lab 测试剑玉", output.read_text(encoding="utf-8"))
+
+    def test_default_preview_is_synthetic_mercari_new_listing(self):
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory) / "preview.html"
+            write_preview(output)
+            rendered = output.read_text(encoding="utf-8")
+
+        for expected in (
+            "【测试｜卖家监控】",
+            "<strong>事件：</strong>新上架",
+            "<strong>平台：</strong>Mercari",
+            "<strong>卖家：</strong>测试卖家",
+            "<strong>类型：</strong>待确认",
+            "<strong>商品：</strong>测试剑玉商品",
+            "<strong>价格：</strong>¥8,000",
+            "<strong>检测时间：</strong>2026-07-25 14:30:00 +08:00",
+            '<img src="https://example.com/images/test-kendama.jpg"',
+            '<a href="https://example.com/items/test-item">查看商品</a>',
+        ):
+            self.assertIn(expected, rendered)
+        self.assertNotIn("Yahoo! Auctions", rendered)
+        self.assertNotIn("降价", rendered)
+        self.assertNotIn("拍卖", rendered)
+
+    def test_preview_cli_has_no_config_token_network_or_database_side_effects(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            output = root / "preview.html"
+            config = root / "seller_monitor.yaml"
+            env = root / "seller_monitor.env"
+            database = root / "seller_monitor.db"
+            with (
+                mock.patch("seller_monitor.main.load_config") as load_config,
+                mock.patch("seller_monitor.main.pushplus_token") as read_token,
+                mock.patch("seller_monitor.main.PushPlusNotifier") as notifier,
+                mock.patch("seller_monitor.notifier.PushPlusNotifier.send") as send,
+                mock.patch("seller_monitor.main.run_monitor") as run_monitor,
+                mock.patch("requests.sessions.Session.request") as request,
+            ):
+                result = main(
+                    [
+                        "--preview-notification",
+                        "--preview-output",
+                        str(output),
+                        "--config",
+                        str(config),
+                        "--env",
+                        str(env),
+                    ]
+                )
+
+            self.assertEqual(0, result)
+            self.assertTrue(output.is_file())
+            load_config.assert_not_called()
+            read_token.assert_not_called()
+            notifier.assert_not_called()
+            send.assert_not_called()
+            run_monitor.assert_not_called()
+            request.assert_not_called()
+            self.assertFalse(config.exists())
+            self.assertFalse(env.exists())
+            self.assertFalse(database.exists())
 
     def test_add_known_seller_writes_safe_yaml_without_network(self):
         with tempfile.TemporaryDirectory() as directory:
