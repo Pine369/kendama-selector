@@ -58,6 +58,19 @@ class NotifierOfflineTests(unittest.TestCase):
         self.assertIn("¥5,000 → ¥4,500", rendered)
         self.assertIn("¥500（10.00%）", rendered)
 
+    def test_unknown_listing_type_is_rendered_as_pending_confirmation(self):
+        rendered = render_notification_html({**PAYLOAD, "listing_type": "unknown"})
+        self.assertIn("<strong>类型：</strong>待确认", rendered)
+        self.assertNotIn("<strong>类型：</strong>普通商品", rendered)
+
+    def test_fixed_listing_type_is_rendered_as_regular_listing(self):
+        rendered = render_notification_html({**PAYLOAD, "listing_type": "fixed"})
+        self.assertIn("<strong>类型：</strong>普通商品", rendered)
+
+    def test_auction_listing_type_is_rendered_as_auction(self):
+        rendered = render_notification_html({**PAYLOAD, "listing_type": "auction"})
+        self.assertIn("<strong>类型：</strong>拍卖", rendered)
+
     def test_pushplus_200_is_accepted_not_delivered(self):
         session = FakeSession(FakeResponse())
         result = PushPlusNotifier("fake-token", session=session).send(PAYLOAD)

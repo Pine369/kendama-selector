@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Optional
+from typing import Any, Literal, Optional, TypeAlias
+
+
+ListingType: TypeAlias = Literal["fixed", "auction", "unknown"]
 
 
 @dataclass(frozen=True)
@@ -40,7 +43,7 @@ class ListingSnapshot:
     item_url: str
     title: str
     image_url: str
-    listing_type: str
+    listing_type: ListingType
     current_price: Optional[int]
     item_id: Optional[str] = None
     auction_start_price: Optional[int] = None
@@ -65,7 +68,7 @@ class ItemChange:
     identity_key: str
     is_new: bool
     previous_price: Optional[int]
-    previous_listing_type: Optional[str]
+    previous_listing_type: Optional[ListingType]
     previous_auction_start_price: Optional[int]
     previous_auction_buyout_price: Optional[int]
 
@@ -78,4 +81,3 @@ class NotificationResult:
     provider_message: Optional[str] = None
     http_status: Optional[int] = None
     error: Optional[str] = None
-

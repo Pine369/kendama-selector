@@ -79,6 +79,8 @@ SQLite 使用 WAL、外键和唯一索引。七张表完全位于 `seller_monito
 
 商品身份按以下顺序生成：平台 `item_id`、规范化商品 URL、最后才是标题与图片 URL 的哈希。真实适配器必须优先返回原生 `item_id`。
 
+`items.listing_type` 接受 `fixed`、`auction` 和 `unknown`。本项目不提供旧实验 schema 的通用迁移框架；如果本地曾创建过旧版 `seller_monitor.db`，应删除该实验数据库并由当前版本重新创建。正式运行数据启用后再另行设计可审计迁移。
+
 ## 基线、变化识别与幂等
 
 首次成功且结果完整的卖家检查只写入商品和价格历史，并设置 `baseline_completed_at`，通知数为 0。失败或不完整结果不能完成基线，避免把半页商品误当完整历史。
@@ -86,10 +88,12 @@ SQLite 使用 WAL、外键和唯一索引。七张表完全位于 `seller_monito
 基线完成后：
 
 - 首次出现的新商品生成 `new_listing`；拍卖商品同样处理。
-- 固定价从高价变低价生成 `fixed_price_drop`。
-- 固定价上涨默认只进入快照和 `price_history`；仅当 `notify_price_increase: true` 时生成 `fixed_price_increase`。
+- `unknown` 新商品照常生成一次 `new_listing`；其后价格涨跌只写入 `price_history`，不生成价格通知。
+- 只有前后类型均为 `fixed`，且价格从高变低时，才生成 `fixed_price_drop`。
+- 前后类型均为 `fixed` 的上涨默认只进入快照和 `price_history`；仅当 `notify_price_increase: true` 时生成 `fixed_price_increase`。
 - 拍卖当前竞价变化只记录，不通知。
-- 可明确取得的起拍价/即决价变化生成 `auction_terms_change`。
+- 只有前后类型均为 `auction`，可明确取得的起拍价/即决价变化才生成 `auction_terms_change`。
+- `unknown` 与已知类型之间的切换只更新快照并建立下一轮比较基准，不追溯生成价格事件，也不会把 `unknown` 自动转换为 `fixed`。
 - 完整列表中消失的商品标记为 `missing`，V0 不通知。
 
 事件键先拼装语义字段，再计算 SHA-256：
@@ -188,7 +192,7 @@ query names: limit, seller_id, status, with_auction
 - 捕获商品对象没有明确 listing type、auction、current bid、start price 或 buyout 字段；`price` 和 `is_no_price` 不能作为拍卖判据。
 - `parse_items_response()` 因此对真实 fixture 返回 `listing_type="unknown"`。只有响应出现明确 `is_auction`、sale type 或 auction 对象时才映射为 `auction`/`fixed`。
 - 首屏 `has_next=true` 时 parser 必定返回 `complete=False`。缺失稳定 item ID、重复 ID、空响应或分页信息未知也不能完整。
-- 当前数据库约束只接受 `fixed`/`auction`，因此正式 `fetch_seller()` 仍未启用，不能执行完整 bootstrap。需要先取得可靠拍卖类型和分页机制，或经审查扩展数据模型；不得静默把 unknown 当 fixed。
+- 当前数据库约束已接受 `unknown`，且通知卡片显示为“待确认”；不得静默把 `unknown` 当作 `fixed`。
 
 离线 fixture：
 

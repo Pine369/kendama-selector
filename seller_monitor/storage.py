@@ -69,7 +69,7 @@ CREATE TABLE IF NOT EXISTS items (
     item_url TEXT NOT NULL,
     title TEXT NOT NULL,
     image_url TEXT NOT NULL,
-    listing_type TEXT NOT NULL CHECK (listing_type IN ('fixed', 'auction')),
+    listing_type TEXT NOT NULL CHECK (listing_type IN ('fixed', 'auction', 'unknown')),
     current_price INTEGER,
     previous_price INTEGER,
     auction_start_price INTEGER,

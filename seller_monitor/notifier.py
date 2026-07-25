@@ -35,7 +35,11 @@ def render_notification_html(payload: dict) -> str:
     }
     event_label = event_labels.get(payload.get("event_type"), payload.get("event_type", "商品变化"))
     platform_label = platform_labels.get(payload.get("platform"), payload.get("platform", "未知平台"))
-    listing_label = "拍卖" if payload.get("listing_type") == "auction" else "普通商品"
+    listing_label = {
+        "fixed": "普通商品",
+        "auction": "拍卖",
+        "unknown": "待确认",
+    }.get(payload.get("listing_type"), "待确认")
     old_price = payload.get("old_price")
     new_price = payload.get("new_price")
     price_line = _money(new_price)

@@ -92,6 +92,7 @@ class SellerMonitorService:
 
         if (
             snapshot.listing_type == "fixed"
+            and change.previous_listing_type == "fixed"
             and change.previous_price is not None
             and snapshot.current_price is not None
             and snapshot.current_price < change.previous_price
@@ -109,6 +110,7 @@ class SellerMonitorService:
         elif (
             notify_price_increase
             and snapshot.listing_type == "fixed"
+            and change.previous_listing_type == "fixed"
             and change.previous_price is not None
             and snapshot.current_price is not None
             and snapshot.current_price > change.previous_price
@@ -123,7 +125,7 @@ class SellerMonitorService:
                     snapshot.current_price,
                 )
             )
-        if snapshot.listing_type == "auction":
+        if snapshot.listing_type == "auction" and change.previous_listing_type == "auction":
             terms = (
                 ("start_price", change.previous_auction_start_price, snapshot.auction_start_price),
                 ("buyout_price", change.previous_auction_buyout_price, snapshot.auction_buyout_price),

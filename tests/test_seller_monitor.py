@@ -20,6 +20,24 @@ FIXTURE_PATH = Path(__file__).parent / "fixtures" / "seller_monitor" / "snapshot
 FIXTURES = json.loads(FIXTURE_PATH.read_text(encoding="utf-8"))
 
 
+def make_listing(
+    item_id="m_unknown_001",
+    listing_type="unknown",
+    current_price=5000,
+    **overrides,
+):
+    listing = {
+        "item_id": item_id,
+        "item_url": f"https://jp.mercari.com/item/{item_id}",
+        "title": "未知类型测试商品",
+        "image_url": "https://img.example/unknown-item.jpg",
+        "listing_type": listing_type,
+        "current_price": current_price,
+    }
+    listing.update(overrides)
+    return listing
+
+
 def make_seller(key="seller_a", platform="mercari", enabled=True):
     if platform == "mercari":
         seller_id = "123" if key == "seller_a" else key
@@ -327,6 +345,116 @@ class SellerMonitorTestCase(unittest.TestCase):
         summary = service.run(replace(self.config, notify_price_increase=True))
         self.assertEqual(1, summary.event_count)
         self.assertEqual("fixed_price_increase", notifier.calls[0]["event_type"])
+
+    def test_23_database_accepts_unknown_listing_type(self):
+        adapter = FakeAdapter(self.seller, [[make_listing()]])
+        self.service({"mercari": adapter}).run(self.config, mode="bootstrap")
+        repo = SellerMonitorRepository(self.config.database_path)
+        self.assertEqual("unknown", repo.scalar("SELECT listing_type FROM items"))
+        self.assertEqual("unknown", repo.scalar("SELECT listing_type FROM price_history"))
+
+    def test_24_unknown_new_listing_is_notified_once(self):
+        unknown = [make_listing()]
+        adapter = FakeAdapter(self.seller, [[], unknown, unknown])
+        notifier = FakeNotifier()
+        service = self.service({"mercari": adapter}, notifier)
+        service.run(self.config, mode="bootstrap")
+        first_seen = service.run(self.config)
+        unchanged = service.run(self.config)
+        self.assertEqual(1, first_seen.event_count)
+        self.assertEqual("new_listing", notifier.calls[0]["event_type"])
+        self.assertEqual("unknown", notifier.calls[0]["listing_type"])
+        self.assertEqual(0, unchanged.event_count)
+        self.assertEqual(1, len(notifier.calls))
+
+    def test_25_unknown_price_drop_is_recorded_without_event(self):
+        adapter = FakeAdapter(
+            self.seller,
+            [[make_listing(current_price=5000)], [make_listing(current_price=4500)]],
+        )
+        notifier = FakeNotifier()
+        service = self.service({"mercari": adapter}, notifier)
+        service.run(self.config, mode="bootstrap")
+        summary = service.run(self.config)
+        repo = SellerMonitorRepository(self.config.database_path)
+        self.assertEqual(0, summary.event_count)
+        self.assertEqual(2, repo.scalar("SELECT COUNT(*) FROM price_history"))
+        self.assertEqual(0, len(notifier.calls))
+
+    def test_26_unknown_price_increase_is_recorded_without_event(self):
+        adapter = FakeAdapter(
+            self.seller,
+            [[make_listing(current_price=5000)], [make_listing(current_price=5500)]],
+        )
+        notifier = FakeNotifier()
+        service = self.service({"mercari": adapter}, notifier)
+        service.run(self.config, mode="bootstrap")
+        summary = service.run(replace(self.config, notify_price_increase=True))
+        repo = SellerMonitorRepository(self.config.database_path)
+        self.assertEqual(0, summary.event_count)
+        self.assertEqual(2, repo.scalar("SELECT COUNT(*) FROM price_history"))
+        self.assertEqual(0, len(notifier.calls))
+
+    def test_27_unknown_to_fixed_drop_does_not_create_price_event(self):
+        adapter = FakeAdapter(
+            self.seller,
+            [
+                [make_listing(listing_type="unknown", current_price=5000)],
+                [make_listing(listing_type="fixed", current_price=4500)],
+            ],
+        )
+        notifier = FakeNotifier()
+        service = self.service({"mercari": adapter}, notifier)
+        service.run(self.config, mode="bootstrap")
+        summary = service.run(self.config)
+        repo = SellerMonitorRepository(self.config.database_path)
+        self.assertEqual(0, summary.event_count)
+        self.assertEqual(2, repo.scalar("SELECT COUNT(*) FROM price_history"))
+        self.assertEqual(0, len(notifier.calls))
+
+    def test_28_fixed_to_unknown_does_not_create_price_event(self):
+        adapter = FakeAdapter(
+            self.seller,
+            [
+                [make_listing(listing_type="fixed", current_price=5000)],
+                [make_listing(listing_type="unknown", current_price=4500)],
+            ],
+        )
+        notifier = FakeNotifier()
+        service = self.service({"mercari": adapter}, notifier)
+        service.run(self.config, mode="bootstrap")
+        summary = service.run(self.config)
+        self.assertEqual(0, summary.event_count)
+        self.assertEqual(0, len(notifier.calls))
+
+    def test_29_auction_to_unknown_does_not_create_terms_event(self):
+        adapter = FakeAdapter(
+            self.seller,
+            [
+                [
+                    make_listing(
+                        listing_type="auction",
+                        current_price=5000,
+                        auction_start_price=4000,
+                        auction_buyout_price=7000,
+                    )
+                ],
+                [
+                    make_listing(
+                        listing_type="unknown",
+                        current_price=4500,
+                        auction_start_price=3500,
+                        auction_buyout_price=6500,
+                    )
+                ],
+            ],
+        )
+        notifier = FakeNotifier()
+        service = self.service({"mercari": adapter}, notifier)
+        service.run(self.config, mode="bootstrap")
+        summary = service.run(self.config)
+        self.assertEqual(0, summary.event_count)
+        self.assertEqual(0, len(notifier.calls))
 
 
 class MultiSellerAdapter:
