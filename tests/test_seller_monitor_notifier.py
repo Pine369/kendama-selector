@@ -12,7 +12,7 @@ from seller_monitor.main import add_seller_interactive, main
 from seller_monitor.config import MonitorConfig
 from seller_monitor.models import FetchResult, ListingSnapshot, MonitoredSeller, NotificationResult
 from seller_monitor.monitor import SellerMonitorService
-from seller_monitor.notifier import PushPlusNotifier, render_notification_html, write_preview
+from seller_monitor.notifier import PushPlusNotifier, notification_title, render_notification_html, write_preview
 from seller_monitor.platforms import default_adapters
 from seller_monitor.repository import SellerMonitorRepository
 
@@ -76,6 +76,8 @@ class NotifierOfflineTests(unittest.TestCase):
         result = PushPlusNotifier("fake-token", session=session).send(PAYLOAD)
         self.assertEqual("accepted", result.status)
         request_body = session.calls[0][1]["json"]
+        self.assertEqual(notification_title(PAYLOAD), request_body["title"])
+        self.assertEqual(render_notification_html(PAYLOAD), request_body["content"])
         self.assertEqual("html", request_body["template"])
         self.assertEqual("wechat", request_body["channel"])
 
@@ -106,7 +108,7 @@ class NotifierOfflineTests(unittest.TestCase):
             "<strong>类型：</strong>待确认",
             "<strong>商品：</strong>测试剑玉商品",
             "<strong>价格：</strong>¥8,000",
-            "<strong>检测时间：</strong>2026-07-25 14:30:00 +08:00",
+            "<strong>检测时间：</strong>2026-07-25 14:30:00 +08:00（合成测试时间）",
             '<img src="https://example.com/images/test-kendama.jpg"',
             '<a href="https://example.com/items/test-item">查看商品</a>',
         ):

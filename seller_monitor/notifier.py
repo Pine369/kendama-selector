@@ -16,6 +16,7 @@ from seller_monitor.models import NotificationResult
 
 PUSHPLUS_ENDPOINT = "https://www.pushplus.plus/send"
 PREVIEW_TITLE = "【测试｜卖家监控】"
+TEST_NOTIFICATION_DISCLAIMER = "这是一条系统连接测试消息，不代表真实商品上新。"
 PREVIEW_PAYLOAD = {
     "event_type": "new_listing",
     "platform": "mercari",
@@ -26,7 +27,7 @@ PREVIEW_PAYLOAD = {
     "item_url": "https://example.com/items/test-item",
     "old_price": None,
     "new_price": 8000,
-    "observed_at": "2026-07-25 14:30:00 +08:00",
+    "observed_at": "2026-07-25 14:30:00 +08:00（合成测试时间）",
 }
 
 
@@ -34,7 +35,12 @@ def _money(value: int | None) -> str:
     return "价格未知" if value is None else f"¥{value:,}"
 
 
-def render_notification_html(payload: dict, *, preview_title: str | None = None) -> str:
+def render_notification_html(
+    payload: dict,
+    *,
+    preview_title: str | None = None,
+    footer: str | None = None,
+) -> str:
     event_labels = {
         "new_listing": "新上架",
         "fixed_price_drop": "降价",
@@ -87,6 +93,7 @@ def render_notification_html(payload: dict, *, preview_title: str | None = None)
     else:
         document_title = f"{html.escape(event_label)}｜{html.escape(platform_label)}"
         heading = f"<h2>{event_heading}</h2>"
+    footer_html = f"<p><em>{html.escape(footer)}</em></p>" if footer else ""
     return f"""<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width">
 <title>{document_title}</title></head>
@@ -99,6 +106,7 @@ def render_notification_html(payload: dict, *, preview_title: str | None = None)
 <p><strong>价格：</strong>{price_line}</p>
 {drop_line}<p><strong>检测时间：</strong>{html.escape(payload.get('observed_at') or '')}</p>
 {image}<p><a href="{item_url}">查看商品</a></p>
+{footer_html}
 </div></body></html>"""
 
 
@@ -118,10 +126,22 @@ class PushPlusNotifier:
         self.session = session or requests.Session()
 
     def send(self, payload: dict) -> NotificationResult:
+        return self._send_html(notification_title(payload), render_notification_html(payload))
+
+    def send_test_notification(self, payload: dict | None = None) -> NotificationResult:
+        test_payload = payload or PREVIEW_PAYLOAD
+        content = render_notification_html(
+            test_payload,
+            preview_title=PREVIEW_TITLE,
+            footer=TEST_NOTIFICATION_DISCLAIMER,
+        )
+        return self._send_html(PREVIEW_TITLE, content)
+
+    def _send_html(self, title: str, content: str) -> NotificationResult:
         body = {
             "token": self.token,
-            "title": notification_title(payload),
-            "content": render_notification_html(payload),
+            "title": title,
+            "content": content,
             "template": "html",
             "channel": "wechat",
         }

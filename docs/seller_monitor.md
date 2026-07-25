@@ -56,12 +56,17 @@ venv/bin/python -m seller_monitor.main --status
 venv/bin/python -m seller_monitor.main --bootstrap
 venv/bin/python -m seller_monitor.main --once
 venv/bin/python -m seller_monitor.main --preview-notification
+venv/bin/python -m seller_monitor.main --test-notification
 venv/bin/python -m seller_monitor.main --add-seller "卖家主页 URL 或包含主页 URL 的分享文本"
 ```
 
 云端使用项目的 `venv/bin/python`。Windows 本地离线验收使用 `.venv\Scripts\python.exe`。所有命令可用 `--config` 和 `--env` 指定独立文件。预览可用 `--preview-output <path>` 改写输出位置。
 
 `--add-seller` 只做离线处理：识别平台、规范化 URL、尽可能从 URL 提取 `seller_id`、展示候选记录并要求确认，然后原子更新 YAML。它不接受昵称、不访问网络、不创建数据库，也不触发扫描。无法严格识别的主页会停止，不猜平台或卖家身份。新增卖家的下一次成功完整扫描自动作为基线；显式执行 `--bootstrap` 更便于审计。
+
+`--test-notification` 只读取 `--env` 指定的独立环境文件，确认 `PUSHPLUS_TOKEN` 非空但不显示其值。命令先展示 Mercari 合成消息，只有人工输入 `y` 或 `yes` 才调用 PushPlus 一次；其他输入均取消。它不读取卖家 YAML、不访问平台、不启动监控器，也不创建或修改数据库及正式通知事件。测试发送不自动重试。
+
+Windows CLI 不要求执行 `chcp 65001` 或设置永久环境变量。UTF-8 输出流正常显示 `¥8,000`；当 stdout/stderr 使用无法编码半角日元符号的 GBK/cp936 严格模式时，控制台自动降级为 `JPY 8,000`，微信 HTML 内容仍保留 `¥8,000`。重定向、`StringIO` 和不支持 `reconfigure()` 的流使用同一安全输出边界。
 
 ## 数据库
 
@@ -118,6 +123,8 @@ SQLite 使用 WAL、外键和唯一索引。七张表完全位于 `seller_monito
 - `retryable_failure`：连接尚未建立即可确认失败，可在后续运行重试同一事件记录。
 - `rejected`：服务商明确拒绝，不标记成功，也不自动循环发送。
 - `delivery_unknown`：读取超时、未知请求异常或发送中进程退出，可能已经被接受；为防重复，不自动重发。
+
+测试通知沿用相同状态语义，但完全绕过 `notification_events` 和 `notification_attempts`：`accepted` 仍不代表已送达，其他结果在本次命令中均不自动重试。
 
 接口尝试和事件最终状态分别写入 `notification_attempts`、`notification_events`。没有 token 时不会实例化通知器，事件保持 `pending`，且不会误写成功。
 
