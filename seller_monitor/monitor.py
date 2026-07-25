@@ -56,7 +56,7 @@ class SellerMonitorService:
             snapshot.platform,
             change.identity_key,
             event_type,
-            new_price=new_price,
+            new_price=None if event_type == "new_listing" else new_price,
             term_type=term_type,
         )
         return self.repository.create_event(
@@ -76,19 +76,25 @@ class SellerMonitorService:
         snapshot: ListingSnapshot,
         baseline: bool,
         notify_price_increase: bool = False,
+        new_listing_eligible: bool | None = None,
     ) -> tuple[str, int]:
         identity_key, _ = item_identity(snapshot)
         change = self.repository.upsert_snapshot(run_id, snapshot)
         if baseline:
             return identity_key, 0
         created = 0
-        if change.is_new:
+        should_create_new_listing = (
+            change.is_new if new_listing_eligible is None else new_listing_eligible
+        )
+        if should_create_new_listing:
             created += int(
                 self._create_event(
                     run_id, snapshot, change, "new_listing", None, snapshot.current_price
                 )
             )
             return identity_key, created
+        if change.is_new:
+            return identity_key, 0
 
         if (
             snapshot.listing_type == "fixed"
@@ -183,7 +189,42 @@ class SellerMonitorService:
                     continue
                 try:
                     result = adapter.fetch_seller(seller)
-                    baseline = seller.baseline_completed_at is None
+                    latest_window_mode = result.coverage == "latest_window"
+                    if latest_window_mode and not result.window_complete:
+                        raise ValueError("Mercari latest_window 不完整")
+
+                    previous_window = None
+                    window_relation = None
+                    ordered_identities = []
+                    new_listing_identities: set[str] = set()
+                    if latest_window_mode:
+                        ordered_identities = [
+                            item_identity(snapshot)[0] for snapshot in result.snapshots
+                        ]
+                        if len(ordered_identities) != len(set(ordered_identities)):
+                            raise ValueError("latest_window 包含重复商品身份")
+                        previous_window = self.repository.latest_window(seller.seller_key)
+                        baseline = previous_window is None
+                        if baseline:
+                            window_relation = "baseline"
+                        else:
+                            previous_identities = set(previous_window.ordered_identity_keys)
+                            first_overlap = next(
+                                (
+                                    index
+                                    for index, identity in enumerate(ordered_identities)
+                                    if identity in previous_identities
+                                ),
+                                None,
+                            )
+                            if first_overlap is None:
+                                window_relation = "no_overlap"
+                            else:
+                                window_relation = "overlap"
+                                new_listing_identities = set(ordered_identities[:first_overlap])
+                    else:
+                        baseline = seller.baseline_completed_at is None
+
                     seen = set()
                     seller_events = 0
                     for snapshot in result.snapshots:
@@ -194,19 +235,45 @@ class SellerMonitorService:
                             snapshot,
                             baseline,
                             config.notify_price_increase,
+                            (
+                                item_identity(snapshot)[0] in new_listing_identities
+                                if latest_window_mode
+                                else None
+                            ),
                         )
                         seen.add(identity)
                         seller_events += count
-                    if result.complete:
+                    if result.coverage == "full" and result.complete:
                         self.repository.mark_missing(seller.seller_key, seen, utc_now())
+                    if latest_window_mode:
+                        captured_at = (
+                            result.snapshots[0].observed_at
+                            if result.snapshots and result.snapshots[0].observed_at
+                            else utc_now()
+                        )
+                        self.repository.save_latest_window(
+                            seller_key=seller.seller_key,
+                            scan_run_id=run_id,
+                            captured_at=captured_at,
+                            ordered_identity_keys=ordered_identities,
+                            window_limit=result.window_limit,
+                            has_next=result.has_next,
+                        )
+                    successful_result = (
+                        bool(result.window_complete) if latest_window_mode else result.complete
+                    )
                     self.repository.mark_seller_success(
                         seller.seller_key,
-                        complete_baseline=baseline and result.complete,
+                        complete_baseline=baseline and successful_result,
                     )
-                    check_status = "success" if result.complete else "partial_failure"
+                    check_status = (
+                        "no_overlap"
+                        if latest_window_mode and window_relation == "no_overlap"
+                        else "success" if successful_result else "partial_failure"
+                    )
                     self.repository.finish_check(check_id, check_status, result, seller_events)
                     events += seller_events
-                    if result.complete:
+                    if successful_result:
                         succeeded += 1
                     else:
                         failed += 1

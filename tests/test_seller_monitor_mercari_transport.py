@@ -267,9 +267,13 @@ def run_transport(**scenario):
 
 
 class MercariTransportOfflineTests(unittest.TestCase):
-    def test_01_six_on_sale_items_and_terminal_page_are_complete(self):
+    def test_01_six_on_sale_items_form_valid_latest_window(self):
         adapter, result, fake = run_transport(filtered_payload=make_payload())
-        self.assertTrue(result.complete)
+        self.assertFalse(result.complete)
+        self.assertEqual("latest_window", result.coverage)
+        self.assertTrue(result.window_complete)
+        self.assertFalse(result.has_next)
+        self.assertEqual(30, result.window_limit)
         self.assertEqual(6, len(result.snapshots))
         self.assertEqual(1, adapter.last_diagnostics.navigation_count)
         self.assertEqual(2, adapter.last_diagnostics.get_items_request_count)
@@ -287,15 +291,18 @@ class MercariTransportOfflineTests(unittest.TestCase):
         )
         self.assertEqual("chrome", fake.chromium.launch_options["channel"])
         self.assertEqual(1, fake.page.toggle_click_count)
+        self.assertEqual("on_sale", result.snapshots[0].status)
         self.assertEqual("on_sale", result.snapshots[0].raw["platform_status"])
         self.assertFalse(result.snapshots[0].raw["is_archived"])
         self.assertEqual("example_seller_id", result.snapshots[0].raw["seller_id"])
 
-    def test_02_has_next_true_is_incomplete_and_returns_no_snapshots(self):
+    def test_02_has_next_true_is_still_a_valid_latest_window(self):
         adapter, result, _ = run_transport(filtered_payload=make_payload(has_next=True))
         self.assertFalse(result.complete)
-        self.assertEqual([], result.snapshots)
-        self.assertEqual("filtered_has_next_true", adapter.last_diagnostics.error)
+        self.assertTrue(result.window_complete)
+        self.assertTrue(result.has_next)
+        self.assertEqual(6, len(result.snapshots))
+        self.assertIsNone(adapter.last_diagnostics.error)
 
     def test_03_mixed_sold_out_item_is_incomplete(self):
         statuses = ["on_sale"] * 5 + ["sold_out"]
@@ -354,12 +361,12 @@ class MercariTransportOfflineTests(unittest.TestCase):
         _, result, _ = run_transport(
             filtered_payload=make_payload(explicit_auction=True)
         )
-        self.assertTrue(result.complete)
+        self.assertTrue(result.window_complete)
         self.assertEqual({"unknown"}, {item.listing_type for item in result.snapshots})
 
     def test_10_headers_and_secrets_are_never_read_or_recorded(self):
         adapter, result, _ = run_transport()
-        self.assertTrue(result.complete)
+        self.assertTrue(result.window_complete)
         serialized = json.dumps(asdict(adapter.last_diagnostics)).lower()
         for forbidden in ("dpop", "cookie", "authorization", "set-cookie", "token"):
             self.assertNotIn(forbidden, serialized)
@@ -375,7 +382,7 @@ class MercariTransportOfflineTests(unittest.TestCase):
 
     def test_12_transport_opens_no_item_detail_page(self):
         _, result, fake = run_transport()
-        self.assertTrue(result.complete)
+        self.assertTrue(result.window_complete)
         self.assertEqual([PROFILE_URL], [call[0] for call in fake.page.goto_calls])
         self.assertFalse(any("/item/" in url for url in fake.page.natural_request_urls))
         self.assertEqual(0, result.detail_page_request_count)
@@ -384,7 +391,7 @@ class MercariTransportOfflineTests(unittest.TestCase):
         with mock.patch("requests.sessions.Session.request") as request:
             _, result, fake = run_transport()
             request.assert_not_called()
-        self.assertTrue(result.complete)
+        self.assertTrue(result.window_complete)
         self.assertEqual(1, len(fake.page.goto_calls))
 
     def test_14_missing_has_next_is_incomplete(self):
@@ -415,7 +422,7 @@ class MercariTransportOfflineTests(unittest.TestCase):
 
     def test_18_delayed_unfiltered_response_is_not_mistaken_for_filtered(self):
         adapter, result, _ = run_transport(emit_stale_unfiltered_after_click=True)
-        self.assertTrue(result.complete)
+        self.assertTrue(result.window_complete)
         self.assertEqual("on_sale", adapter.last_diagnostics.filtered_query["status"])
         self.assertEqual(3, adapter.last_diagnostics.get_items_response_count)
 
@@ -435,6 +442,12 @@ class MercariTransportOfflineTests(unittest.TestCase):
             "filtered_exclude_archived_item_is_not_true",
             adapter.last_diagnostics.error,
         )
+
+    def test_21_latest_window_limit_must_be_30(self):
+        filtered_url = FILTERED_URL.replace("limit=30", "limit=60")
+        adapter, result, _ = run_transport(filtered_url=filtered_url)
+        self.assertFalse(result.window_complete)
+        self.assertEqual("filtered_limit_is_not_30", adapter.last_diagnostics.error)
 
 
 if __name__ == "__main__":

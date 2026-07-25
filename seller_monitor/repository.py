@@ -7,7 +7,13 @@ import uuid
 from pathlib import Path
 from typing import Iterable
 
-from seller_monitor.models import ItemChange, ListingSnapshot, MonitoredSeller, NotificationResult
+from seller_monitor.models import (
+    ItemChange,
+    ListingSnapshot,
+    MonitoredSeller,
+    NotificationResult,
+    SellerLatestWindow,
+)
 from seller_monitor.storage import connect_database, initialize_database
 from seller_monitor.utils import item_identity, utc_now
 
@@ -177,6 +183,62 @@ class SellerMonitorRepository:
             db.execute(
                 "UPDATE monitored_sellers SET last_error=?, updated_at=? WHERE seller_key=?",
                 (error, utc_now(), seller_key),
+            )
+
+    def latest_window(self, seller_key: str) -> SellerLatestWindow | None:
+        with connect_database(self.database_path) as db:
+            row = db.execute(
+                """SELECT seller_key, scan_run_id, captured_at, ordered_identity_keys_json,
+                          window_limit, has_next, coverage
+                   FROM seller_latest_windows WHERE seller_key=?
+                   ORDER BY window_id DESC LIMIT 1""",
+                (seller_key,),
+            ).fetchone()
+        if row is None:
+            return None
+        ordered = json.loads(row["ordered_identity_keys_json"])
+        if not isinstance(ordered, list) or not all(isinstance(value, str) for value in ordered):
+            raise ValueError("seller_latest_windows 包含无效的有序 identity 列表")
+        return SellerLatestWindow(
+            seller_key=row["seller_key"],
+            scan_run_id=row["scan_run_id"],
+            captured_at=row["captured_at"],
+            ordered_identity_keys=tuple(ordered),
+            window_limit=int(row["window_limit"]),
+            has_next=bool(row["has_next"]),
+            coverage=row["coverage"],
+        )
+
+    def save_latest_window(
+        self,
+        *,
+        seller_key: str,
+        scan_run_id: str,
+        captured_at: str,
+        ordered_identity_keys: list[str],
+        window_limit: int,
+        has_next: bool,
+    ) -> None:
+        if window_limit <= 0:
+            raise ValueError("window_limit 必须大于 0")
+        if len(ordered_identity_keys) != len(set(ordered_identity_keys)):
+            raise ValueError("latest_window 不能包含重复 identity")
+        if not all(isinstance(value, str) and value for value in ordered_identity_keys):
+            raise ValueError("latest_window identity 必须是非空字符串")
+        with connect_database(self.database_path) as db:
+            db.execute(
+                """INSERT INTO seller_latest_windows(
+                       seller_key, scan_run_id, captured_at, ordered_identity_keys_json,
+                       window_limit, has_next, coverage
+                   ) VALUES (?, ?, ?, ?, ?, ?, 'latest_window')""",
+                (
+                    seller_key,
+                    scan_run_id,
+                    captured_at,
+                    json.dumps(ordered_identity_keys, ensure_ascii=False),
+                    window_limit,
+                    int(has_next),
+                ),
             )
 
     def upsert_snapshot(self, run_id: str, snapshot: ListingSnapshot) -> ItemChange:

@@ -59,6 +59,20 @@ CREATE TABLE IF NOT EXISTS seller_checks (
     UNIQUE(run_id, seller_key)
 );
 
+CREATE TABLE IF NOT EXISTS seller_latest_windows (
+    window_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    seller_key TEXT NOT NULL REFERENCES monitored_sellers(seller_key),
+    scan_run_id TEXT NOT NULL REFERENCES scan_runs(run_id),
+    captured_at TEXT NOT NULL,
+    ordered_identity_keys_json TEXT NOT NULL,
+    window_limit INTEGER NOT NULL CHECK (window_limit > 0),
+    has_next INTEGER NOT NULL CHECK (has_next IN (0, 1)),
+    coverage TEXT NOT NULL CHECK (coverage = 'latest_window'),
+    UNIQUE(seller_key, scan_run_id)
+);
+CREATE INDEX IF NOT EXISTS ix_seller_latest_windows_latest
+    ON seller_latest_windows(seller_key, window_id DESC);
+
 CREATE TABLE IF NOT EXISTS items (
     item_row_id INTEGER PRIMARY KEY AUTOINCREMENT,
     platform TEXT NOT NULL,
@@ -114,6 +128,8 @@ CREATE TABLE IF NOT EXISTS notification_events (
 );
 CREATE INDEX IF NOT EXISTS ix_notification_events_status
     ON notification_events(status, created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_notification_events_new_listing_item
+    ON notification_events(item_row_id, event_type) WHERE event_type = 'new_listing';
 
 CREATE TABLE IF NOT EXISTS notification_attempts (
     attempt_id INTEGER PRIMARY KEY AUTOINCREMENT,

@@ -424,6 +424,10 @@ class MercariAdapter(PlatformAdapter):
             list_page_request_count=diagnostics.get_items_request_count,
             detail_page_request_count=0,
             network_request_count=diagnostics.network_request_count,
+            coverage="latest_window",
+            window_complete=False,
+            has_next=diagnostics.has_next,
+            window_limit=30,
         )
 
     def _result_from_filtered_response(
@@ -446,6 +450,8 @@ class MercariAdapter(PlatformAdapter):
             return self._failed_result(
                 diagnostics, "filtered_exclude_archived_item_is_not_true"
             )
+        if captured.query.get("limit") != "30":
+            return self._failed_result(diagnostics, "filtered_limit_is_not_30")
         if captured.payload is None:
             return self._failed_result(
                 diagnostics, captured.parse_error or "filtered_response_has_no_json_payload"
@@ -457,9 +463,8 @@ class MercariAdapter(PlatformAdapter):
 
         diagnostics.item_count = len(parsed.items)
         diagnostics.has_next = parsed.has_next
-        if parsed.has_next is not False:
-            reason = "filtered_has_next_true" if parsed.has_next else "filtered_has_next_missing"
-            return self._failed_result(diagnostics, reason)
+        if parsed.has_next is None:
+            return self._failed_result(diagnostics, "filtered_has_next_missing")
         if parsed.errors:
             return self._failed_result(diagnostics, "filtered_response_has_identity_or_shape_errors")
         if any(item.raw_status != "on_sale" for item in parsed.items):
@@ -488,7 +493,7 @@ class MercariAdapter(PlatformAdapter):
                 image_url=item.image_url,
                 listing_type="unknown",
                 current_price=item.current_price,
-                status="active",
+                status="on_sale",
                 observed_at=observed_at,
                 raw={
                     "seller_id": item.seller_id or seller.seller_id,
@@ -500,7 +505,7 @@ class MercariAdapter(PlatformAdapter):
         ]
         diagnostics.stage = "completed"
         logger.info(
-            "Mercari seller fetch complete: navigation=%d get_items=%d items=%d has_next=%s",
+            "Mercari seller latest window complete: navigation=%d get_items=%d items=%d has_next=%s",
             diagnostics.navigation_count,
             diagnostics.get_items_response_count,
             diagnostics.item_count,
@@ -508,10 +513,14 @@ class MercariAdapter(PlatformAdapter):
         )
         return FetchResult(
             snapshots=snapshots,
-            complete=True,
+            complete=False,
             list_page_request_count=diagnostics.get_items_request_count,
             detail_page_request_count=0,
             network_request_count=diagnostics.network_request_count,
+            coverage="latest_window",
+            window_complete=True,
+            has_next=parsed.has_next,
+            window_limit=30,
         )
 
     def fetch_seller(self, seller: MonitoredSeller) -> FetchResult:

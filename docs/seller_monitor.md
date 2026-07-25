@@ -4,7 +4,7 @@
 
 `seller_monitor` 是与现有 AI 选品系统独立的程序。它不导入或写入 `main.py`、`ai_filter.py`、`db.py`、`reporting.py`、`kendama.db`、`feedback.db`、`daily_pool.json` 或 `run_state.json`，不读取项目 `.env`，不使用飞书，也不调用 LLM。模型 Token 成本始终为 0。
 
-当前提交候选是 V0 第一阶段的离线骨架。Mercari、Yahoo! Auctions 和 Rakuten 适配器只实现严格的卖家主页 URL 识别、规范化和能力声明；`fetch_seller()` 会明确拒绝真实访问。拿到代表性卖家 URL 并保存 HTML fixture 后，再实现各平台列表页解析。
+Mercari 已实现基于系统 Chrome 的最新在售窗口适配；Yahoo! Auctions 和 Rakuten 仍只提供严格的卖家主页 URL 识别、规范化和能力声明，不进行真实抓取。各平台运行状态和业务数据库彼此不会接入现有 AI 选品流程。
 
 ## 文件与运行数据
 
@@ -73,13 +73,14 @@ Windows CLI 不要求执行 `chcp 65001` 或设置永久环境变量。UTF-8 输
 
 ## 数据库
 
-SQLite 使用 WAL、外键和唯一索引。七张表完全位于 `seller_monitor.db`：
+SQLite 使用 WAL、外键和唯一索引。八张表完全位于 `seller_monitor.db`：
 
 | 表 | 用途 | 关键约束 |
 | --- | --- | --- |
 | `monitored_sellers` | 配置、软删除、基线及健康状态 | `seller_key` 主键；平台+原生 ID、平台+URL 唯一 |
 | `scan_runs` | 每轮整体状态 | 独立 `run_id`；区分 success/partial_failure/failed |
 | `seller_checks` | 每卖家检查与请求计数 | `run_id + seller_key` 唯一 |
+| `seller_latest_windows` | 每次 Mercari 最新窗口的有序身份列表 | `seller_key + scan_run_id` 唯一；保留顺序、窗口上限、`has_next` 和 coverage |
 | `items` | 最新商品快照 | `platform + identity_key` 唯一 |
 | `price_history` | 价格和拍卖条款变化 | `item_row_id + run_id` 唯一 |
 | `notification_events` | 待发送及最终通知状态 | 哈希 `event_key` 主键 |
@@ -91,18 +92,23 @@ SQLite 使用 WAL、外键和唯一索引。七张表完全位于 `seller_monito
 
 ## 基线、变化识别与幂等
 
-首次成功且结果完整的卖家检查只写入商品和价格历史，并设置 `baseline_completed_at`，通知数为 0。失败或不完整结果不能完成基线，避免把半页商品误当完整历史。
+Mercari V0 使用 `coverage=latest_window`：每次只保存 `status=on_sale`、按页面最新顺序返回的前 30 件商品。第一次有效窗口只写入商品、价格历史和有序窗口，并设置 `baseline_completed_at`，通知数为 0。这里完成的是“最新窗口基线”，不代表抓完卖家的全部在售商品。
 
 基线完成后：
 
-- 首次出现的新商品生成 `new_listing`；拍卖商品同样处理。
+- 当前窗口先查找第一个也存在于上次窗口的商品；只有它之前的陌生商品可生成 `new_listing`。
+- 第一个重叠商品之后才进入窗口的陌生商品视为历史补入，只静默写入，不生成通知。
+- 两次窗口完全无重叠时不通知，保存当前窗口作为下一轮基准，并把该卖家检查记为 `no_overlap`。
+- `latest_window` 永不调用 `mark_missing`，窗口之外的商品不会被改成 `missing`，也不据此判断下架或售出。
 - `unknown` 新商品照常生成一次 `new_listing`；其后价格涨跌只写入 `price_history`，不生成价格通知。
 - 只有前后类型均为 `fixed`，且价格从高变低时，才生成 `fixed_price_drop`。
 - 前后类型均为 `fixed` 的上涨默认只进入快照和 `price_history`；仅当 `notify_price_increase: true` 时生成 `fixed_price_increase`。
 - 拍卖当前竞价变化只记录，不通知。
 - 只有前后类型均为 `auction`，可明确取得的起拍价/即决价变化才生成 `auction_terms_change`。
 - `unknown` 与已知类型之间的切换只更新快照并建立下一轮比较基准，不追溯生成价格事件，也不会把 `unknown` 自动转换为 `fixed`。
-- 完整列表中消失的商品标记为 `missing`，V0 不通知。
+- 只有未来明确返回 `coverage=full` 且 `complete=True` 的平台结果，才允许对完整列表中消失的商品调用 `mark_missing`；Mercari 最新窗口模式不适用。
+
+价格变化只比较本轮最新窗口中实际出现的商品。已知商品重新进入窗口时可与数据库旧价格比较；窗口外商品本轮没有实时价格证据，因此 V0 不承诺覆盖其降价。每日深度价格检查和指定商品价格监控属于后续独立能力。
 
 事件键先拼装语义字段，再计算 SHA-256：
 
@@ -208,7 +214,9 @@ query names: limit, seller_id, status, with_auction
 
 `MercariAdapter.fetch_seller()` 使用 Playwright 启动系统 Chrome（`channel="chrome"`），每个卖家创建一个新的非持久化 browser context。它只导航一次卖家主页、等待首屏自然产生的 `get_items`、点击一次“仅显示当前在售商品”，然后只解析点击后自然产生的响应；不会主动重放 API、访问商品详情、读取请求头或保存 Cookie/DPoP。
 
-筛选响应必须同时具有 `status=on_sale`、`with_auction=true` 和 `exclude_archived_item=true`，HTTP 状态为 200，所有商品状态为 `on_sale`，且 `meta.has_next=false`、身份和响应结构完整，才能返回 `complete=True`。V0 遇到 `has_next=true` 不猜测 `pager_id`、不继续分页，而是返回空快照和 `complete=False`。验证码、登录墙、主页或列表请求 403/429、超时、解析错误和身份缺失同样返回空快照，因而不会完成基线、写入半完整商品或生成通知。
+筛选响应必须同时具有 `limit=30`、`status=on_sale`、`with_auction=true` 和 `exclude_archived_item=true`，HTTP 状态为 200，所有商品状态为 `on_sale`，并且 `meta.has_next` 明确、身份和响应结构完整。满足这些条件时返回 `coverage=latest_window`、`window_complete=True`、`complete=False`：`has_next=true` 只表示卖家还有窗口外商品，不会使当前最新 30 件失效，也不会触发翻页。`complete=False` 始终明确表示没有声称抓完全部在售商品。
+
+验证码、登录墙、主页或列表请求 403/429、超时、解析错误、缺失 `has_next` 和身份缺失均返回 `window_complete=False`，不会更新有序窗口、完成基线或生成通知。有效最新窗口即使 `has_next=false` 也仍是 `latest_window`，不会获得调用 `mark_missing` 的权限。
 
 运行诊断只保留导航数、总请求数、`get_items` 请求/响应数、筛选参数白名单、商品数、`has_next` 和安全错误分类；不保留响应正文、真实请求 URL、请求头或浏览器存储。本功能目前只通过 mock Playwright 离线测试，尚未执行真实 bootstrap。
 

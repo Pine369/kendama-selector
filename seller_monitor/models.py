@@ -7,6 +7,7 @@ from typing import Any, Literal, Optional, TypeAlias
 
 
 ListingType: TypeAlias = Literal["fixed", "auction", "unknown"]
+FetchCoverage: TypeAlias = Literal["full", "latest_window"]
 
 
 @dataclass(frozen=True)
@@ -60,6 +61,38 @@ class FetchResult:
     list_page_request_count: int = 0
     detail_page_request_count: int = 0
     network_request_count: int = 0
+    coverage: FetchCoverage = "full"
+    window_complete: Optional[bool] = None
+    has_next: Optional[bool] = None
+    window_limit: Optional[int] = None
+
+    def __post_init__(self):
+        if self.coverage not in {"full", "latest_window"}:
+            raise ValueError(f"未知 FetchResult coverage: {self.coverage}")
+        if self.coverage == "latest_window" and self.complete:
+            raise ValueError("latest_window 不能声明 full listing complete")
+        if self.window_complete is None:
+            object.__setattr__(self, "window_complete", self.complete)
+        if self.coverage == "latest_window":
+            if self.window_limit is None or self.window_limit <= 0:
+                raise ValueError("latest_window 必须声明正数 window_limit")
+            if self.window_complete and self.has_next not in {True, False}:
+                raise ValueError("有效 latest_window 必须明确声明 has_next")
+
+    @property
+    def full_listing_complete(self) -> bool:
+        return self.complete
+
+
+@dataclass(frozen=True)
+class SellerLatestWindow:
+    seller_key: str
+    scan_run_id: str
+    captured_at: str
+    ordered_identity_keys: tuple[str, ...]
+    window_limit: int
+    has_next: bool
+    coverage: Literal["latest_window"] = "latest_window"
 
 
 @dataclass(frozen=True)
