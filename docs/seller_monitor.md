@@ -194,6 +194,14 @@ query names: limit, seller_id, status, with_auction
 - 首屏 `has_next=true` 时 parser 必定返回 `complete=False`。缺失稳定 item ID、重复 ID、空响应或分页信息未知也不能完整。
 - 当前数据库约束已接受 `unknown`，且通知卡片显示为“待确认”；不得静默把 `unknown` 当作 `fixed`。
 
+### Mercari V0 浏览器 transport
+
+`MercariAdapter.fetch_seller()` 使用 Playwright 启动系统 Chrome（`channel="chrome"`），每个卖家创建一个新的非持久化 browser context。它只导航一次卖家主页、等待首屏自然产生的 `get_items`、点击一次“仅显示当前在售商品”，然后只解析点击后自然产生的响应；不会主动重放 API、访问商品详情、读取请求头或保存 Cookie/DPoP。
+
+筛选响应必须同时具有 `status=on_sale`、`with_auction=true` 和 `exclude_archived_item=true`，HTTP 状态为 200，所有商品状态为 `on_sale`，且 `meta.has_next=false`、身份和响应结构完整，才能返回 `complete=True`。V0 遇到 `has_next=true` 不猜测 `pager_id`、不继续分页，而是返回空快照和 `complete=False`。验证码、登录墙、主页或列表请求 403/429、超时、解析错误和身份缺失同样返回空快照，因而不会完成基线、写入半完整商品或生成通知。
+
+运行诊断只保留导航数、总请求数、`get_items` 请求/响应数、筛选参数白名单、商品数、`has_next` 和安全错误分类；不保留响应正文、真实请求 URL、请求头或浏览器存储。本功能目前只通过 mock Playwright 离线测试，尚未执行真实 bootstrap。
+
 离线 fixture：
 
 ```text
