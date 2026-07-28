@@ -239,26 +239,24 @@ def _valid_http_url(value: str) -> bool:
 
 
 def _select_display_test_snapshot(snapshots):
+    if not snapshots:
+        return None
     for snapshot in snapshots:
-        platform_status = (snapshot.raw or {}).get("platform_status")
-        is_on_sale = snapshot.status == "on_sale" or (
-            snapshot.status == "active" and platform_status == "on_sale"
-        )
         valid_price = (
             isinstance(snapshot.current_price, int)
             and not isinstance(snapshot.current_price, bool)
             and snapshot.current_price > 0
         )
-        if (
-            is_on_sale
+        if not (
+            snapshot.status == "on_sale"
             and isinstance(snapshot.title, str)
             and snapshot.title.strip()
             and _valid_http_url(snapshot.image_url)
             and _valid_http_url(snapshot.item_url)
             and valid_price
         ):
-            return snapshot
-    return None
+            return None
+    return snapshots[0]
 
 
 def send_test_notification_from_seller_interactive(
@@ -301,23 +299,16 @@ def send_test_notification_from_seller_interactive(
         output_func("错误：Mercari 卖家商品获取失败；未发送测试消息。")
         return 1
 
-    diagnostics = getattr(adapter, "last_diagnostics", None)
-    has_next = getattr(fetch_result, "has_next", None)
-    if has_next is None:
-        has_next = getattr(diagnostics, "has_next", None)
-    if has_next is True:
-        output_func("错误：Mercari 在售列表仍有下一页；未发送测试消息。")
+    if fetch_result.coverage != "latest_window":
+        output_func("错误：Mercari 结果不是 latest_window；未发送测试消息。")
         return 1
-    if not fetch_result.complete:
-        output_func("错误：Mercari FetchResult.complete=False；未发送测试消息。")
-        return 1
-    if has_next is not False:
-        output_func("错误：无法确认 Mercari 在售列表已到最后一页；未发送测试消息。")
+    if fetch_result.window_complete is not True:
+        output_func("错误：Mercari latest_window 无效或不完整；未发送测试消息。")
         return 1
 
     snapshot = _select_display_test_snapshot(fetch_result.snapshots)
     if snapshot is None:
-        output_func("错误：没有同时具备在售状态、图片、标题、价格和链接的商品；未发送。")
+        output_func("错误：窗口为空，或存在非在售/缺少图片、标题、价格、链接的商品；未发送。")
         return 1
 
     observed_at = snapshot.observed_at

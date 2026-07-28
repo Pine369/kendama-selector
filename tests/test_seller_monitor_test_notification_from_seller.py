@@ -7,7 +7,6 @@ import unittest
 from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
-from types import SimpleNamespace
 from unittest import mock
 
 import yaml
@@ -36,16 +35,31 @@ def make_snapshot(
         image_url=image_url,
         listing_type="unknown",
         current_price=current_price,
-        status="active",
+        status=platform_status,
         observed_at="2026-07-25T15:00:00+08:00",
         raw={"platform_status": platform_status},
     )
 
 
+def make_latest_result(
+    snapshots=None,
+    *,
+    has_next=False,
+    window_complete=True,
+):
+    return FetchResult(
+        list(snapshots if snapshots is not None else [make_snapshot()]),
+        complete=False,
+        coverage="latest_window",
+        window_complete=window_complete,
+        has_next=has_next if window_complete else None,
+        window_limit=30,
+    )
+
+
 class FakeAdapter:
-    def __init__(self, result, *, has_next=False):
+    def __init__(self, result):
         self.result = result
-        self.last_diagnostics = SimpleNamespace(has_next=has_next)
         self.calls = []
 
     def fetch_seller(self, seller):
@@ -121,12 +135,11 @@ class RealSellerNotificationOfflineTests(unittest.TestCase):
         self,
         result,
         *,
-        has_next=False,
         answer="y",
         notifier=None,
         output=None,
     ):
-        adapter = FakeAdapter(result, has_next=has_next)
+        adapter = FakeAdapter(result)
         notifier = notifier or FakeNotifier("synthetic-secret")
         output = output if output is not None else []
         return_code = send_test_notification_from_seller_interactive(
@@ -155,51 +168,74 @@ class RealSellerNotificationOfflineTests(unittest.TestCase):
         self.assertEqual(0, result)
         command.assert_called_once()
 
-    def test_complete_result_selects_first_valid_on_sale_listing(self):
-        invalid = make_snapshot(image_url="")
+    def test_valid_latest_window_selects_first_on_sale_listing(self):
         first_valid = make_snapshot(title="第一件有效商品")
         second_valid = make_snapshot(title="第二件有效商品", item_url="https://jp.mercari.com/item/m00000000002")
-        result = FetchResult([invalid, first_valid, second_valid], complete=True)
+        result = make_latest_result([first_valid, second_valid])
         code, adapter, notifier, _ = self._run(result)
         self.assertEqual(0, code)
         self.assertEqual(1, len(adapter.calls))
         self.assertEqual(1, len(notifier.calls))
         self.assertEqual("第一件有效商品", notifier.calls[0][0]["title"])
 
-    def test_incomplete_result_does_not_send(self):
-        code, _, notifier, _ = self._run(FetchResult([make_snapshot()], complete=False))
+    def test_invalid_latest_window_does_not_send(self):
+        code, _, notifier, _ = self._run(
+            make_latest_result(window_complete=False)
+        )
         self.assertEqual(1, code)
         self.assertEqual([], notifier.calls)
 
-    def test_has_next_true_does_not_send_even_if_result_claims_complete(self):
+    def test_has_next_true_valid_latest_window_can_send_once(self):
+        code, _, notifier, _ = self._run(make_latest_result(has_next=True))
+        self.assertEqual(0, code)
+        self.assertEqual(1, len(notifier.calls))
+
+    def test_full_coverage_result_does_not_send(self):
         code, _, notifier, output = self._run(
-            FetchResult([make_snapshot()], complete=True), has_next=True
+            FetchResult([make_snapshot()], complete=True)
         )
         self.assertEqual(1, code)
         self.assertEqual([], notifier.calls)
-        self.assertIn("下一页", "\n".join(output))
+        self.assertIn("不是 latest_window", "\n".join(output))
 
-    def test_missing_has_next_proof_does_not_send(self):
-        adapter = FakeAdapter(FetchResult([make_snapshot()], complete=True), has_next=None)
-        notifier = FakeNotifier("synthetic-secret")
-        code = send_test_notification_from_seller_interactive(
-            str(self.paths.config),
-            str(self.paths.env),
-            adapters={"mercari": adapter},
-            notifier_factory=lambda token: notifier,
-            input_func=lambda _: "y",
-            output_func=lambda _: None,
+    def test_empty_latest_window_does_not_send(self):
+        code, _, notifier, _ = self._run(make_latest_result([]))
+        self.assertEqual(1, code)
+        self.assertEqual([], notifier.calls)
+
+    def test_mixed_status_window_does_not_send(self):
+        result = make_latest_result(
+            [make_snapshot(), make_snapshot(platform_status="sold_out")]
         )
+        code, _, notifier, _ = self._run(result)
+        self.assertEqual(1, code)
+        self.assertEqual([], notifier.calls)
+
+    def test_any_invalid_candidate_rejects_entire_window(self):
+        result = make_latest_result([make_snapshot(), make_snapshot(image_url="")])
+        code, _, notifier, _ = self._run(result)
         self.assertEqual(1, code)
         self.assertEqual([], notifier.calls)
 
     def test_missing_image_does_not_send(self):
-        code, _, notifier, _ = self._run(FetchResult([make_snapshot(image_url="")]))
+        code, _, notifier, _ = self._run(make_latest_result([make_snapshot(image_url="")]))
         self.assertEqual(1, code)
         self.assertEqual([], notifier.calls)
 
     def test_missing_price_does_not_send(self):
-        code, _, notifier, _ = self._run(FetchResult([make_snapshot(current_price=None)]))
+        code, _, notifier, _ = self._run(
+            make_latest_result([make_snapshot(current_price=None)])
+        )
+        self.assertEqual(1, code)
+        self.assertEqual([], notifier.calls)
+
+    def test_missing_title_does_not_send(self):
+        code, _, notifier, _ = self._run(make_latest_result([make_snapshot(title="")]))
+        self.assertEqual(1, code)
+        self.assertEqual([], notifier.calls)
+
+    def test_missing_item_url_does_not_send(self):
+        code, _, notifier, _ = self._run(make_latest_result([make_snapshot(item_url="")]))
         self.assertEqual(1, code)
         self.assertEqual([], notifier.calls)
 
@@ -208,7 +244,7 @@ class RealSellerNotificationOfflineTests(unittest.TestCase):
         second = {**seller, "seller_key": "seller_second", "seller_id": "example_second"}
         second["seller_url"] = "https://jp.mercari.com/user/profile/example_second"
         self._write_config(sellers=[seller, second])
-        adapter = FakeAdapter(FetchResult([make_snapshot()]))
+        adapter = FakeAdapter(make_latest_result())
         notifier = FakeNotifier("synthetic-secret")
         code = send_test_notification_from_seller_interactive(
             str(self.paths.config),
@@ -236,7 +272,7 @@ class RealSellerNotificationOfflineTests(unittest.TestCase):
                 }
             ]
         )
-        adapter = FakeAdapter(FetchResult([make_snapshot()]))
+        adapter = FakeAdapter(make_latest_result())
         notifier = FakeNotifier("synthetic-secret")
         code = send_test_notification_from_seller_interactive(
             str(self.paths.config),
@@ -252,14 +288,14 @@ class RealSellerNotificationOfflineTests(unittest.TestCase):
 
     def test_unconfirmed_message_is_not_sent(self):
         code, _, notifier, output = self._run(
-            FetchResult([make_snapshot()]), answer="n"
+            make_latest_result(), answer="n"
         )
         self.assertEqual(1, code)
         self.assertEqual([], notifier.calls)
         self.assertIn("已取消，未发送测试消息。", output)
 
     def test_confirmed_message_sends_once_with_test_title_and_disclaimer(self):
-        code, _, notifier, output = self._run(FetchResult([make_snapshot()]))
+        code, _, notifier, output = self._run(make_latest_result())
         self.assertEqual(0, code)
         self.assertEqual(1, len(notifier.calls))
         payload, kwargs = notifier.calls[0]
@@ -285,7 +321,7 @@ class RealSellerNotificationOfflineTests(unittest.TestCase):
         self.paths.state.write_text('{"sentinel":true}', encoding="utf-8")
         database_before = self.paths.database.read_bytes()
         state_before = self.paths.state.read_bytes()
-        code, _, notifier, _ = self._run(FetchResult([make_snapshot()]))
+        code, _, notifier, _ = self._run(make_latest_result())
         self.assertEqual(0, code)
         self.assertEqual(1, len(notifier.calls))
         self.assertEqual(database_before, self.paths.database.read_bytes())
@@ -301,7 +337,7 @@ class RealSellerNotificationOfflineTests(unittest.TestCase):
             mock.patch("seller_monitor.main.SellerMonitorRepository") as repository,
             mock.patch("seller_monitor.main.SellerMonitorService") as monitor,
         ):
-            code, _, notifier, _ = self._run(FetchResult([make_snapshot()]))
+            code, _, notifier, _ = self._run(make_latest_result())
         self.assertEqual(0, code)
         self.assertEqual(1, len(notifier.calls))
         repository.assert_not_called()
@@ -309,7 +345,7 @@ class RealSellerNotificationOfflineTests(unittest.TestCase):
 
     def test_missing_token_stops_before_fetch(self):
         self.paths.env.write_text("PUSHPLUS_TOKEN=\n", encoding="utf-8")
-        code, adapter, notifier, output = self._run(FetchResult([make_snapshot()]))
+        code, adapter, notifier, output = self._run(make_latest_result())
         self.assertEqual(2, code)
         self.assertEqual([], adapter.calls)
         self.assertEqual([], notifier.calls)
@@ -317,7 +353,7 @@ class RealSellerNotificationOfflineTests(unittest.TestCase):
 
     def test_gbk_output_falls_back_without_sending(self):
         snapshot = make_snapshot(title="日本語テスト商品")
-        adapter = FakeAdapter(FetchResult([snapshot]))
+        adapter = FakeAdapter(make_latest_result([snapshot]))
         notifier = FakeNotifier("synthetic-secret")
         buffer = io.BytesIO()
         stream = io.TextIOWrapper(buffer, encoding="cp936", errors="strict", newline="")

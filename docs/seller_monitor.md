@@ -69,7 +69,7 @@ venv/bin/python -m seller_monitor.main --add-seller "卖家主页 URL 或包含�
 
 Windows CLI 不要求执行 `chcp 65001` 或设置永久环境变量。UTF-8 输出流正常显示 `¥8,000`；当 stdout/stderr 使用无法编码半角日元符号的 GBK/cp936 严格模式时，控制台自动降级为 `JPY 8,000`，微信 HTML 内容仍保留 `¥8,000`。重定向、`StringIO` 和不支持 `reconfigure()` 的流使用同一安全输出边界。
 
-`--test-notification-from-seller` 是一次性真实商品展示验收入口。它只允许配置中恰好一个启用且未删除的 Mercari 卖家，使用正式 adapter 获取一次完整在售列表，并要求 `FetchResult.complete=True`、`has_next=False`。命令选择第一件同时具有 `on_sale` 状态、图片、标题、有效价格和商品链接的商品，先显示图片域名等摘要并要求 `y/yes` 确认，然后最多发送一次明确标记为测试的消息。它不实例化监控 service 或 repository，不修改数据库、基线、状态文件或正式通知事件，也不自动重试。
+`--test-notification-from-seller` 是一次性真实商品展示验收入口。它只允许配置中恰好一个启用且未删除的 Mercari 卖家，并只接受 `coverage=latest_window`、`window_complete=True` 的正式 adapter 结果；`has_next=true/false` 均可，因为命令只需一件当前在售商品，不要求遍历全部在售列表。窗口必须非空，且所有候选商品均为 `on_sale` 并具有图片、标题、有效价格和商品链接。命令选择第一件商品，先显示图片域名等摘要并要求 `y/yes` 确认，然后最多发送一次明确标记为测试的消息。它不实例化监控 service 或 repository，不修改数据库、基线、状态文件或正式通知事件，也不自动重试。
 
 ## 数据库
 
