@@ -218,7 +218,7 @@ query names: limit, seller_id, status, with_auction
 
 验证码、登录墙、主页或列表请求 403/429、超时、解析错误、缺失 `has_next` 和身份缺失均返回 `window_complete=False`，不会更新有序窗口、完成基线或生成通知。有效最新窗口即使 `has_next=false` 也仍是 `latest_window`，不会获得调用 `mark_missing` 的权限。
 
-运行诊断只保留导航数、总请求数、`get_items` 请求/响应数、筛选参数白名单、商品数、`has_next` 和安全错误分类；不保留响应正文、真实请求 URL、请求头或浏览器存储。本功能目前只通过 mock Playwright 离线测试，尚未执行真实 bootstrap。
+运行诊断只保留导航数、总请求数、`get_items` 请求/响应数、筛选参数白名单、商品数、`has_next` 和安全错误分类；不保留响应正文、真实请求 URL、请求头或浏览器存储。一个授权卖家已完成真实 baseline 与紧接着的无变化扫描验收：两轮均取得 6 件当前在售商品，历史事件和新增事件均为 0。之后一次扫描在等待首个 `get_items` 响应时超时，失败没有覆盖上一次有效窗口；后续代码已确保同类失败会把安全 transport 原因和已有请求计数写入 `seller_checks`。
 
 离线 fixture：
 

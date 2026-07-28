@@ -193,7 +193,17 @@ class SellerMonitorService:
                     result = adapter.fetch_seller(seller)
                     latest_window_mode = result.coverage == "latest_window"
                     if latest_window_mode and not result.window_complete:
-                        raise ValueError("Mercari latest_window 不完整")
+                        diagnostics = getattr(adapter, "last_diagnostics", None)
+                        error = getattr(diagnostics, "error", None) or "Mercari latest_window 不完整"
+                        self.repository.mark_seller_error(seller.seller_key, error)
+                        self.repository.finish_check(
+                            check_id,
+                            "failed",
+                            result=result,
+                            error=error,
+                        )
+                        failed += 1
+                        continue
 
                     previous_window = None
                     window_relation = None

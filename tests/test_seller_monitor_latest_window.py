@@ -3,6 +3,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 from seller_monitor.config import MonitorConfig
@@ -392,12 +393,33 @@ class SellerLatestWindowTests(unittest.TestCase):
         service = self.service(adapter)
         service.run(self.config, mode="bootstrap")
         before = self.repository().latest_window(self.seller.seller_key)
+        adapter.last_diagnostics = SimpleNamespace(
+            error="waiting_for_initial_items_failed:TimeoutError"
+        )
         failed = service.run(self.config)
         after = self.repository().latest_window(self.seller.seller_key)
         self.assertEqual("partial_failure", failed.status)
         self.assertEqual((0, 1), (failed.seller_succeeded, failed.seller_failed))
         self.assertEqual(before.scan_run_id, after.scan_run_id)
         self.assertEqual(1, self.repository().scalar("SELECT COUNT(*) FROM seller_latest_windows"))
+        self.assertEqual(
+            "waiting_for_initial_items_failed:TimeoutError",
+            self.repository().scalar(
+                "SELECT error FROM seller_checks ORDER BY check_id DESC LIMIT 1"
+            ),
+        )
+        self.assertEqual(
+            1,
+            self.repository().scalar(
+                "SELECT list_page_request_count FROM seller_checks ORDER BY check_id DESC LIMIT 1"
+            ),
+        )
+        self.assertEqual(
+            1,
+            self.repository().scalar(
+                "SELECT network_request_count FROM seller_checks ORDER BY check_id DESC LIMIT 1"
+            ),
+        )
 
 
 if __name__ == "__main__":
