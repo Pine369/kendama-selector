@@ -84,7 +84,9 @@ class SellerMonitorService:
             return identity_key, 0
         created = 0
         should_create_new_listing = (
-            change.is_new if new_listing_eligible is None else new_listing_eligible
+            change.is_new
+            if new_listing_eligible is None
+            else change.is_new and new_listing_eligible
         )
         if should_create_new_listing:
             created += int(

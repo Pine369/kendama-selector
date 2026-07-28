@@ -22,7 +22,14 @@ def make_seller() -> MonitoredSeller:
     )
 
 
-def make_snapshot(seller: MonitoredSeller, item_id: str, price: int = 8_000) -> ListingSnapshot:
+def make_snapshot(
+    seller: MonitoredSeller,
+    item_id: str,
+    price: int = 8_000,
+    *,
+    title: str | None = None,
+    image_url: str | None = None,
+) -> ListingSnapshot:
     return ListingSnapshot(
         platform=seller.platform,
         seller_key=seller.seller_key,
@@ -30,8 +37,8 @@ def make_snapshot(seller: MonitoredSeller, item_id: str, price: int = 8_000) -> 
         seller_url=seller.seller_url,
         item_id=item_id,
         item_url=f"https://jp.mercari.com/item/{item_id}",
-        title=f"测试商品 {item_id}",
-        image_url=f"https://example.com/images/{item_id}.jpg",
+        title=title or f"测试商品 {item_id}",
+        image_url=image_url or f"https://example.com/images/{item_id}.jpg",
         listing_type="unknown",
         current_price=price,
         status="on_sale",
@@ -227,6 +234,82 @@ class SellerLatestWindowTests(unittest.TestCase):
         self.assertEqual(0, service.run(self.config).event_count)
         self.assertEqual(0, service.run(self.config).event_count)
         self.assertEqual(1, self.repository().scalar("SELECT COUNT(*) FROM notification_events"))
+
+    def test_baseline_item_returning_at_window_head_is_not_new(self):
+        adapter = SequenceAdapter(
+            [
+                latest_result(self.seller, ["mA", "mB"], prices={"mA": 8_000}),
+                latest_result(self.seller, ["mB", "mC"]),
+                latest_result(self.seller, ["mA", "mB"], prices={"mA": 7_000}),
+            ]
+        )
+        notifier = AcceptingNotifier()
+        service = self.service(adapter, notifier)
+        service.run(self.config, mode="bootstrap")
+        self.assertEqual(0, service.run(self.config).event_count)
+
+        returned = service.run(self.config)
+        repository = self.repository()
+        self.assertEqual(0, returned.event_count)
+        self.assertEqual([], notifier.calls)
+        self.assertEqual(
+            2,
+            repository.scalar(
+                "SELECT COUNT(*) FROM price_history ph "
+                "JOIN items i ON i.item_row_id=ph.item_row_id WHERE i.item_id='mA'"
+            ),
+        )
+        self.assertEqual(
+            7_000,
+            repository.scalar("SELECT current_price FROM items WHERE item_id='mA'"),
+        )
+        self.assertEqual(0, repository.scalar("SELECT COUNT(*) FROM notification_events"))
+
+    def test_relisted_item_with_new_id_is_new_before_overlap(self):
+        shared_title = "相同标题测试商品"
+        shared_image = "https://example.com/images/shared.jpg"
+        old_item = make_snapshot(
+            self.seller,
+            "mOLD",
+            title=shared_title,
+            image_url=shared_image,
+        )
+        overlap = make_snapshot(self.seller, "mB")
+        new_item = make_snapshot(
+            self.seller,
+            "mNEW",
+            title=shared_title,
+            image_url=shared_image,
+        )
+        adapter = SequenceAdapter(
+            [
+                FetchResult(
+                    snapshots=[old_item, overlap],
+                    complete=False,
+                    coverage="latest_window",
+                    window_complete=True,
+                    has_next=True,
+                    window_limit=30,
+                ),
+                latest_result(self.seller, ["mB"]),
+                FetchResult(
+                    snapshots=[new_item, overlap],
+                    complete=False,
+                    coverage="latest_window",
+                    window_complete=True,
+                    has_next=True,
+                    window_limit=30,
+                ),
+            ]
+        )
+        notifier = AcceptingNotifier()
+        service = self.service(adapter, notifier)
+        service.run(self.config, mode="bootstrap")
+        service.run(self.config)
+
+        relisted = service.run(self.config)
+        self.assertEqual(1, relisted.event_count)
+        self.assertEqual(["mNEW"], [payload["item_id"] for payload in notifier.calls])
 
     def test_has_next_true_window_remains_usable(self):
         adapter = SequenceAdapter(
