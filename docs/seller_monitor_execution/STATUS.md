@@ -4,7 +4,7 @@
 
 ## 当前状态
 
-`in_progress` — Milestone 6 已完成，正在执行 Milestone 7 最终验证与推送。
+`completed` — Mercari Seller Monitor 已收口为可部署但尚未自动上线的稳定 V0。
 
 ## Milestone
 
@@ -17,7 +17,7 @@
 | 4 测试通知 | completed | 20 项专项测试通过；接受有效 latest-window 和任意 has_next 布尔值，保持人工确认、单次 mock 发送、GBK 安全及数据库/状态零副作用 |
 | 5 完整验证 | completed | Seller Monitor 150 项、原项目 172 项通过；compileall、diff check、import 零副作用和敏感扫描通过 |
 | 6 拆分提交 | completed | 测试通知修复 `5d92f7d`、never-seen 修复 `252bbb9`、失败诊断修复 `1223e79` 已按主题独立提交；执行文档单独提交 |
-| 7 推送与收口 | in_progress | 正在进行最终全量验证、安全扫描和 origin/main 同步 |
+| 7 推送与收口 | completed | Seller Monitor 150 项、原项目 172 项、compileall、diff check、import 零副作用与敏感扫描再次通过；业务和执行记录已同步到 origin/main |
 
 ## 已知边界
 
@@ -42,6 +42,26 @@
 - 没有持久证据显示 403、429、登录墙或验证码命中；若主文档/access-wall 命中，代码会留下不同错误；附属资源 403 不是此次记录的失败原因；
 - 失败 run 没有 `seller_latest_windows` 记录，上一次有效窗口（6 个 identity、limit 30、has_next false）仍为最新窗口；
 - 历史 `seller_checks` 的 0 请求计数来自 monitor 丢弃失败 FetchResult 的诊断缺陷；修复后未来失败会保留安全原因和已有计数。
+
+## 最终提交与能力
+
+- `b91a51c`：真实商品测试通知入口；
+- `22b3c5b`：Mercari latest-window 监控；
+- `5d92f7d`：真实商品测试通知接受有效 latest window；
+- `252bbb9`：新品必须同时满足窗口前缀资格与历史 never-seen；
+- `1223e79`：失败窗口保留安全 transport 原因和请求计数；
+- `52cd50e`：V0 长周期执行记录；
+- 运行时只监控配置中已确认的 Mercari 卖家，每次读取最新 30 件当前在售商品；窗口不完整时不 `mark_missing`，无重叠时安全重建基准；
+- 真实商品测试通知仍须人工确认，最多发送一次，不写数据库、状态或正式事件；
+- 当前未启用 systemd timer，未进行云端部署，也未执行新的真实扫描或通知。
+
+## 最终验证
+
+- Seller Monitor：150/150 通过；
+- 原 AI 项目离线回归：172/172 通过；
+- `compileall`、`git diff --check`、import 零副作用检查通过；
+- 真实 seller ID、JWT、运行配置跟踪和凭据值扫描通过；`seller_monitor.env.example` 仅含明确占位符；
+- 最终状态文档提交后再次推送，工作区应保持干净且本地 `main` 与 `origin/main` 一致。
 
 ## 剩余人工步骤
 
